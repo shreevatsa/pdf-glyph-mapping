@@ -1,9 +1,9 @@
 use ab_glyph;
+use clap::Clap;
 use image::{DynamicImage, Rgba};
 use regex::Regex;
-use std::convert::TryInto;
 
-fn generate_ab_glyph(filename: PathBuf, size: f32) {
+fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
     use ab_glyph::Font;
     let file_bytes = &std::fs::read(&filename).unwrap();
     // TODO: take the font_id as input, instead of parsing from filename!
@@ -38,9 +38,8 @@ fn generate_ab_glyph(filename: PathBuf, size: f32) {
     let mut y_min = 1000;
     let mut y_max = -1000;
     for g in 0..font.glyph_count() {
-        let gu: u16 = g.try_into().unwrap();
-        let glyph_id = ab_glyph::GlyphId(gu);
-        let glyph = glyph_id.with_scale_and_position(size, ab_glyph::point(0.0, 0.0));
+        let glyph =
+            ab_glyph::GlyphId(g as u16).with_scale_and_position(size, ab_glyph::point(0.0, 0.0));
         if let Some(q) = font.outline_glyph(glyph) {
             x_min = std::cmp::min(x_min, q.px_bounds().min.x as i32);
             x_max = std::cmp::max(x_max, q.px_bounds().max.x as i32);
@@ -82,15 +81,11 @@ fn generate_ab_glyph(filename: PathBuf, size: f32) {
         }
     }
 }
-use clap::Clap;
-use clap::ValueHint;
-use std::path::PathBuf;
 
 #[derive(Clap, Debug)]
-#[clap(name = "dump-glyphs")]
 struct Opt {
-    #[clap(parse(from_os_str), value_hint = ValueHint::AnyPath)]
-    font_file: PathBuf,
+    #[clap(parse(from_os_str))]
+    font_file: std::path::PathBuf,
 }
 
 fn main() {
