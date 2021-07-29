@@ -1,0 +1,24 @@
+[package]
+name = "pdf-glyph-mapping"
+version = "0.1.0"
+authors = ["Shreevatsa R <shreevatsa.public@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+image = { version = "0.23", default-features = false, features = ["png"] }
+rusttype = "0.9.2"
+ttf-parser = "0.12.3"
+ab_glyph = "0.2.11"
+clap = "3.0.0-beta.2"
+lopdf = "0.26.0"
+regex = "1.5.4"
+
+[[bin]]
+name = "dump-glyphs"
+path = "src/dump-glyphs.rs"
+
+[[bin]]
+name = "dump-tjs"
+path = "src/dump-tjs.rs"
