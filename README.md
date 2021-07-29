@@ -5,17 +5,19 @@ Some scripts to help make sense of individual glyphs in a PDF, and map them to a
 
 Text that requires complex text layout (because of being in Indic scripts, say) cannot always be copied correctly from PDFs. Here is a bunch of tools that may help in some cases. (Tested with only a few PDFs so far.)
 
-Roughly, the idea is to extract font data from the PDF file, use visual or other means to associate each glyph with a meaning (roughly: equivalent Unicode sequence, plus a bit more), then use this information to convert each text run to the corresponding text. We could even post-process the PDF file, to wrap each text sequence in a span of `/ActualText`.
+Roughly, the idea is to extract font data from the PDF file, use visual or other means to associate each glyph with a meaning (roughly: equivalent Unicode sequence, plus a bit more), then use this information to convert each text run to the corresponding text. We could even post-process the PDF file (not implemented yet), to wrap each text sequence in a span of `/ActualText`.
 
 ## Example
 
 (TODO)
 
+(But see: [1](https://shreevatsa.github.io/pdf-glyph-mapping/tmp/font-40533.ttf.html) [2](https://shreevatsa.github.io/pdf-glyph-mapping/tmp/font-40534.ttf.html) [3](https://shreevatsa.github.io/pdf-glyph-mapping/tmp/font-40532.ttf.html) [4](https://shreevatsa.github.io/pdf-glyph-mapping/tmp/font-40531.ttf.html).)
+
 ## Usage
 
 (Short version: Run `make`.)
 
-0.  (Not part of this repository.) Extract the font data from the PDF file, in any way. (E.g.: `mutool extract`).
+0.  (Not part of this repository.) Extract the font data from the PDF file, in any way. (E.g.: `mutool extract`). It also helps to preprocess the PDF file with `mutool clean` or `qpdf --qdf`.
 
 1.  Run `dump-glyphs` on such a font file, to dump each glyph in it as a bitmap image.
 
