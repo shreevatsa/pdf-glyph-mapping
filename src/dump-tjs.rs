@@ -1,4 +1,10 @@
+//! Parses a PDF file, and dumps the following:
+//!
+//! 1.  For each font, its ToUnicode mapping (if present), with the font's /BaseFont name.
+//! 2.  For each font, the operands of each text-showing (`Tj` etc) operation that uses that font.
+
 use clap::Clap;
+use itertools::Itertools;
 use lopdf::ObjectId;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -134,33 +140,24 @@ fn print_text_operators_content(
             let name = &op.operands[0].as_name_str().unwrap();
             let actual_xobject = xobjects_dict.get_deref(name.as_bytes(), &document).unwrap();
             let stream = actual_xobject.as_stream().unwrap();
-            print_text_operators_stream(&stream, document, files);
+            let empty_dict = lopdf::Dictionary::new();
+            let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
+                Ok(value) => {
+                    let resources_dict = value.as_dict().unwrap();
+                    (
+                        resources_dict.get(b"Font").unwrap().as_dict().unwrap(),
+                        resources_dict.get(b"XObject").unwrap().as_dict().unwrap(),
+                    )
+                }
+                Err(_) => (&empty_dict, &empty_dict),
+            };
+            println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
+            let content = stream.decode_content().unwrap();
+            print_text_operators_content(&content, fonts, xobjects_dict, document, files);
         } else {
             // println!("Not a text-showing operator: {} {:?}", &s, op.operands);
         }
     }
-}
-
-fn print_text_operators_stream(
-    stream: &lopdf::Stream,
-    document: &lopdf::Document,
-    files: &mut TjFiles,
-) {
-    let dict = &stream.dict;
-    let empty_dict = lopdf::Dictionary::new();
-    let (fonts, xobjects_dict) = match dict.get(b"Resources") {
-        Ok(value) => {
-            let resources_dict = value.as_dict().unwrap();
-            (
-                resources_dict.get(b"Font").unwrap().as_dict().unwrap(),
-                resources_dict.get(b"XObject").unwrap().as_dict().unwrap(),
-            )
-        }
-        Err(_) => (&empty_dict, &empty_dict),
-    };
-    println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
-    let content = stream.decode_content().unwrap();
-    print_text_operators_content(&content, fonts, xobjects_dict, document, files);
 }
 
 fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
@@ -210,13 +207,6 @@ fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
     }
 }
 
-#[derive(clap::Clap, Debug)]
-#[clap(name = "dump-tjs")]
-struct Opt {
-    #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
-    pdf_file: std::path::PathBuf,
-}
-
 fn from_two_bytes(bytes: &[u8]) -> u16 {
     assert_eq!(bytes.len(), 2);
     (bytes[0] as u16) * 256 + (bytes[1] as u16)
@@ -227,7 +217,7 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
         if let Ok(dict) = object.as_dict() {
             if let Ok(s) = dict.get_deref(b"ToUnicode", &document) {
                 let (base_font_name, font_id) = real_font_id(*object_id, &document);
-                // Our PDF assigns the same mapping many times, so keep a HashMap.
+                // Our PDF assigns the same mapping multiple times, for some reason.
                 let mut mapped: HashMap<u16, HashSet<u16>> = HashMap::new();
                 let ss = s.as_stream().unwrap();
                 if let Ok(content) = ss.decode_content() {
@@ -266,8 +256,8 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                     let file = File::create(filename).unwrap();
                     let mut writer = std::io::BufWriter::new(&file);
                     writeln!(&mut writer, "{}", base_font_name).unwrap();
-                    for kv in mapped {
-                        writeln!(&mut writer, "{:04X} -> {:04X?}", kv.0, kv.1).unwrap();
+                    for k in mapped.keys().sorted() {
+                        writeln!(&mut writer, "{:04X} -> {:04X?}", k, mapped[k]).unwrap();
                     }
                 }
             }
@@ -276,11 +266,18 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
 }
 
 fn main() {
+    #[derive(clap::Clap, Debug)]
+    #[clap(name = "dump-tjs")]
+    struct Opt {
+        #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
+        pdf_file: std::path::PathBuf,
+    }
+    let opt = Opt::parse();
+    let filename = opt.pdf_file;
+
     let mut files = TjFiles {
         file: HashMap::new(),
     };
-    let opt = Opt::parse();
-    let filename = opt.pdf_file;
 
     let start = std::time::Instant::now();
     println!("Loading {:?}", filename);

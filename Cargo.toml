@@ -13,6 +13,7 @@ ab_glyph = "0.2.11"
 clap = "3.0.0-beta.2"
 lopdf = "0.26.0"
 regex = "1.5.4"
+itertools = "0.10.1"
 
 [[bin]]
 name = "dump-glyphs"
