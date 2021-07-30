@@ -151,7 +151,7 @@ fn print_text_operators_content(
                 }
                 Err(_) => (&empty_dict, &empty_dict),
             };
-            println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
+            // println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
             let content = stream.decode_content().unwrap();
             print_text_operators_content(&content, fonts, xobjects_dict, document, files);
         } else {
@@ -182,7 +182,7 @@ fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
                 fonts.extend(f.as_dict().unwrap());
             }
         }
-        println!("Fonts: {:?}", fonts);
+        // println!("Fonts: {:?}", fonts);
 
         // I couldn't find an easier way to look up an object by name, than looping through potentially multiple resource objects.
         let mut xobjects_dict = lopdf::Dictionary::new();
@@ -200,7 +200,7 @@ fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
                 xobjects_dict.extend(xd.as_dict().unwrap());
             }
         }
-        println!("xobjects_dict: {:?}", xobjects_dict);
+        // println!("xobjects_dict: {:?}", xobjects_dict);
 
         let content = document.get_and_decode_page_content(page_id).unwrap();
         print_text_operators_content(&content, &fonts, &xobjects_dict, &document, files);
@@ -252,13 +252,21 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                 }
                 if mapped.len() > 0 {
                     let filename = filename_for_font(font_id) + ".map";
-                    println!("Creating file: {}", filename);
+                    println!(
+                        "Creating file: {} for Font {:?} ({}) with {} mappings",
+                        filename,
+                        font_id,
+                        base_font_name,
+                        mapped.len()
+                    );
                     let file = File::create(filename).unwrap();
                     let mut writer = std::io::BufWriter::new(&file);
                     writeln!(&mut writer, "{}", base_font_name).unwrap();
                     for k in mapped.keys().sorted() {
                         writeln!(&mut writer, "{:04X} -> {:04X?}", k, mapped[k]).unwrap();
                     }
+                } else {
+                    println!("Font {:?} ({}) ToUnicode empty?", font_id, base_font_name);
                 }
             }
         }
