@@ -3,8 +3,10 @@ set -euxo pipefail
 # ORIG=../page-200/out-mbh-mutool.pdf
 ORIG=../gp-mbh/unabridged.pdf
 
-mkdir -p tmp
-cd tmp
+tmpdir=tmp-$(date +%s)
+echo "Creating ${tmpdir}"
+mkdir -p ${tmpdir}
+cd ${tmpdir}
 mutool extract ../${ORIG}
 rm image-*.{png,jpg} || true
 RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ../${ORIG}
