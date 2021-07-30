@@ -6,7 +6,7 @@ ORIG=../gp-mbh/unabridged.pdf
 mkdir -p tmp
 cd tmp
 mutool extract ../${ORIG}
-rm image-*.png
+rm image-*.{png,jpg} || true
 RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ../${ORIG}
 for f in *.ttf; do
     echo $f
