@@ -3,7 +3,7 @@ set -euxo pipefail
 # ORIG=../page-200/out-mbh-mutool.pdf
 ORIG=../gp-mbh/unabridged.pdf
 
-mkdir tmp
+mkdir -p tmp
 cd tmp
 mutool extract ../${ORIG}
 rm image-*.png
