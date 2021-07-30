@@ -1,27 +1,20 @@
-"""Given a file foo.pdf:
-
-First, run:
-
-    qpdf --qdf --object-streams=disable --no-original-object-ids foo.pdf foo-qdf.pdf
-
-Second, run:
-
-    python3 dump-tjs.py foo-qdf.pdf
-
-Third, run this file on any one of the Tjs-F* files.
+"""See Makefile (doit.sh) for how this is meant to be called.
 """
 
 import random
 import re
 import sys
+from typing import Any, List, TypeVar
 import unicodedata
 from collections import defaultdict
 
+T = TypeVar('T')
 
-def split_list(big_list, delimiter):
+
+def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
     """Like string.split(foo), except for lists."""
-    cur_list = []
-    parts = []
+    cur_list: List[T] = []
+    parts: List[List[T]] = []
     for item in big_list:
         if item == delimiter:
             if cur_list:
@@ -31,8 +24,6 @@ def split_list(big_list, delimiter):
             cur_list.append(item)
     if cur_list:
         parts.append(cur_list)
-    # if len(parts) > 1:
-    #     print(f'Split {big_list} into {parts}')
     return parts
 
 
