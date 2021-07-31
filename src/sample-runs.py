@@ -8,6 +8,8 @@ from typing import Any, List, TypeVar
 import unicodedata
 from collections import defaultdict
 
+import devnagri_pdf_text
+
 T = TypeVar('T')
 
 
@@ -28,7 +30,8 @@ def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
 
 
 class HtmlWriter:
-    def __init__(self, font_id, font_name, num_glyphs, to_unicode) -> None:
+    def __init__(self, font_id, font_name, filename_helper, num_glyphs, to_unicode) -> None:
+        self.helper = devnagri_pdf_text.Font(filename_helper) if filename_helper else None
         self.font_id = font_id
         self.font_name = font_name
         self.num_glyphs = num_glyphs
@@ -73,7 +76,11 @@ class HtmlWriter:
             name = unicodedata.name(c)
             description = f'(mapped in the PDF to 0x{uni} = {c} = {name})'
         else:
-            description = '(not mapped to Unicode in the PDF)'
+            help = self.helper.id_unicode_raw(int(glyph, 16)) if self.helper else None
+            if help:
+                description = f'(mapped using the helper font to {help}'
+            else:
+                description = '(not mapped to Unicode in the PDF or the helper font)'
         print(f'For glyph {glyph}, have samples {sample_runs}.')
         self.added += 1
         self.html += fr'''
@@ -88,6 +95,7 @@ class HtmlWriter:
 if __name__ == '__main__':
     random.seed(42)
     filename_font = sys.argv[1]  # E.g. font-40532.ttf
+    filename_helper = sys.argv[2] if len(sys.argv) > 2 else None # E.g. noto.ttx
     font_id = re.search(f'font-([0-9]*).ttf', filename_font).group(1)
     filename_tjs = f"Tjs-{font_id}-0"
 
@@ -133,7 +141,7 @@ if __name__ == '__main__':
                     if m < samples_max and parts not in r:
                         r[m] = parts
 
-    h = HtmlWriter(font_id, fontname, len(seen), to_unicode)
+    h = HtmlWriter(font_id, fontname, filename_helper, len(seen), to_unicode)
     for glyph in sorted(seen, key=lambda k: seen[k], reverse=True):
         h.add(glyph, reservoir[glyph])
     open(filename_font + '.html', 'w').write(h.html + h.footer)

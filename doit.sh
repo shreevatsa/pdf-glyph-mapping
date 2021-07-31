@@ -2,6 +2,7 @@ set -euxo pipefail
 
 # ORIG=../page-200/out-mbh-mutool.pdf
 ORIG=../gp-mbh/unabridged.pdf
+HELPER=helper_fonts/NotoSansDevanagari-Regular.ttx
 
 tmpdir=tmp-$(date +%s)
 echo "Creating ${tmpdir}"
@@ -14,7 +15,7 @@ for f in *.ttf; do
     echo $f
     RUST_BACKTRACE=1 cargo run --release --bin dump-glyphs -- $f
     # Yes this takes the font filename and assumes stuff about the Tjs filename etc. Fix later.
-    python3 ../src/sample-runs.py $f
+    python3 ../src/sample-runs.py $f ../${HELPER}
     open $f.html # Or xdg-open on Linux, I guess.
 done
 cd -
