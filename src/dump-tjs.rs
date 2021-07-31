@@ -99,18 +99,31 @@ fn real_font_id(font_reference_id: ObjectId, document: &lopdf::Document) -> (Str
 }
 
 /// Writes the text operators from `content` into corresponding `files`.
-fn print_text_operators_content(
-    content: &lopdf::content::Content,
+fn process_text_operators_object(
+    document: &lopdf::Document,
+    object_id: ObjectId,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
-    document: &lopdf::Document,
     files: &mut TjFiles,
 ) {
+    let content: lopdf::content::Content = {
+        let mut content_u8 = Vec::new();
+        if let Ok(content_stream) = document
+            .get_object(object_id)
+            .and_then(lopdf::Object::as_stream)
+        {
+            match content_stream.decompressed_content() {
+                Ok(data) => content_u8.write_all(&data).unwrap(),
+                Err(_) => content_u8.write_all(&content_stream.content).unwrap(),
+            };
+        }
+        lopdf::content::Content::decode(&content_u8).unwrap()
+    };
     // println!("Finding text operators in: {:?}", content);
     let mut current_font: ObjectId = (0, 0);
     for op in &content.operations {
-        let s = &op.operator;
-        if s == "Tf" {
+        let operator = &op.operator;
+        if operator == "Tf" {
             let font_name = op.operands[0].as_name_str().unwrap();
             let font_id = fonts
                 .get(font_name.as_bytes())
@@ -119,7 +132,7 @@ fn print_text_operators_content(
                 .unwrap();
             // println!("Switching to font {}, which means {:?}", font_name, font_id);
             current_font = real_font_id(font_id, document).1;
-        } else if ["Tj", "TJ", "'", "\""].contains(&s.as_str()) {
+        } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
             for operand in &op.operands {
                 let bytes = operand.as_str().unwrap();
                 let glyphs: Vec<u16> = bytes
@@ -135,11 +148,18 @@ fn print_text_operators_content(
                     .for_each(|g| file.write_all(g.as_bytes()).unwrap());
                 file.write_all(b"\n").unwrap();
             }
-        } else if s == "Do" {
+        } else if operator == "Do" {
             assert_eq!(op.operands.len(), 1);
             let name = &op.operands[0].as_name_str().unwrap();
-            let actual_xobject = xobjects_dict.get_deref(name.as_bytes(), &document).unwrap();
-            let stream = actual_xobject.as_stream().unwrap();
+            let (object_id, stream) = {
+                let mut object = xobjects_dict.get(name.as_bytes()).unwrap();
+                let mut id = (0, 0);
+                while let Ok(ref_id) = object.as_reference() {
+                    id = ref_id;
+                    object = document.objects.get(&ref_id).unwrap();
+                }
+                (id, object.as_stream().unwrap())
+            };
             let empty_dict = lopdf::Dictionary::new();
             let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
                 Ok(value) => {
@@ -152,8 +172,7 @@ fn print_text_operators_content(
                 Err(_) => (&empty_dict, &empty_dict),
             };
             // println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
-            let content = stream.decode_content().unwrap();
-            print_text_operators_content(&content, fonts, xobjects_dict, document, files);
+            process_text_operators_object(document, object_id, fonts, xobjects_dict, files);
         } else {
             // println!("Not a text-showing operator: {} {:?}", &s, op.operands);
         }
@@ -183,8 +202,6 @@ fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
             }
         }
         // println!("Fonts: {:?}", fonts);
-
-        // I couldn't find an easier way to look up an object by name, than looping through potentially multiple resource objects.
         let mut xobjects_dict = lopdf::Dictionary::new();
         if let Some(resource_dict) = maybe_dict {
             if let Ok(xd) = resource_dict.get(b"XObject") {
@@ -202,8 +219,10 @@ fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
         }
         // println!("xobjects_dict: {:?}", xobjects_dict);
 
-        let content = document.get_and_decode_page_content(page_id).unwrap();
-        print_text_operators_content(&content, &fonts, &xobjects_dict, &document, files);
+        let content_streams = document.get_page_contents(page_id);
+        for object_id in content_streams {
+            process_text_operators_object(document, object_id, &fonts, &xobjects_dict, files);
+        }
     }
 }
 
@@ -220,6 +239,7 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                 // Our PDF assigns the same mapping multiple times, for some reason.
                 let mut mapped: HashMap<u16, HashSet<u16>> = HashMap::new();
                 let ss = s.as_stream().unwrap();
+                // TODO: The lopdf library seems to have some difficulty parsing actual CMap files (with comments etc) as the stream.
                 if let Ok(content) = ss.decode_content() {
                     for op in content.operations {
                         let operator = op.operator;
@@ -266,7 +286,10 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                         writeln!(&mut writer, "{:04X} -> {:04X?}", k, mapped[k]).unwrap();
                     }
                 } else {
-                    println!("Font {:?} ({}) ToUnicode empty?", font_id, base_font_name);
+                    println!(
+                        "Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)",
+                        font_id, base_font_name
+                    );
                 }
             }
         }

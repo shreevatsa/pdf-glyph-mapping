@@ -7,8 +7,10 @@ fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
     use ab_glyph::Font;
     let file_bytes = &std::fs::read(&filename).unwrap();
     // TODO: take the font_id as input, instead of parsing from filename!
-    let re = Regex::new(r"font-(?P<font_id>[0-9]*).ttf$").unwrap();
-    let font_id = match re.captures(filename.to_str().unwrap()) {
+    let font_id = match Regex::new(r"font-(?P<font_id>[0-9]*).ttf$")
+        .unwrap()
+        .captures(filename.to_str().unwrap())
+    {
         Some(captures) => captures.name("font_id").unwrap().as_str(),
         None => "",
     };
@@ -82,13 +84,12 @@ fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
     }
 }
 
-#[derive(Clap, Debug)]
-struct Opt {
-    #[clap(parse(from_os_str))]
-    font_file: std::path::PathBuf,
-}
-
 fn main() {
+    #[derive(Clap, Debug)]
+    struct Opt {
+        #[clap(parse(from_os_str))]
+        font_file: std::path::PathBuf,
+    }
     let opt = Opt::parse();
     generate_ab_glyph(opt.font_file, 30.0);
 }
