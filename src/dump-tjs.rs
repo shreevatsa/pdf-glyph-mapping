@@ -105,6 +105,7 @@ fn process_text_operators_object(
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
     files: &mut TjFiles,
+    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
 ) {
     let mut content: lopdf::content::Content = {
         let mut content_u8 = Vec::new();
@@ -135,7 +136,10 @@ fn process_text_operators_object(
             // println!("Switching to font {}, which means {:?}", font_name, font_id);
             current_font = real_font_id(font_id, document).1;
         } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
-            i = process_text_operation(&mut content, i, current_font, files);
+            i = process_text_operation(&mut content, i, current_font, files, font_glyph_mappings);
+            let obj = document.get_object_mut(object_id).unwrap();
+            let stream = obj.as_stream_mut().unwrap();
+            stream.set_content(content.encode().unwrap());
         } else if operator == "Do" {
             assert_eq!(op.operands.len(), 1);
             let name = &op.operands[0].as_name_str().unwrap();
@@ -159,7 +163,14 @@ fn process_text_operators_object(
                 }
                 Err(_) => (&empty_dict, &empty_dict),
             };
-            process_text_operators_object(document, object_id, fonts, xobjects_dict, files);
+            process_text_operators_object(
+                document,
+                object_id,
+                &fonts,
+                xobjects_dict,
+                files,
+                font_glyph_mappings,
+            );
         } else {
             // println!(
             //     "Not a text-showing operator: {} {:?}",
@@ -170,11 +181,72 @@ fn process_text_operators_object(
     }
 }
 
+fn actual_text_for(
+    glyphs: &[u16],
+    current_font: ObjectId,
+    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+) -> String {
+    // println!("Looking up font {:?}", current_font);
+
+    fn get_font_mapping(font_id: ObjectId) -> HashMap<u16, String> {
+        let filename = filename_for_font(font_id) + ".map";
+        let s = std::fs::read_to_string(filename).unwrap();
+        let mut ret = HashMap::<u16, std::string::String>::new();
+        for (i, line) in s.lines().enumerate() {
+            if i > 0 {
+                let (glyph_id, meaning) = match regex::Regex::new(
+                    // TODO: The "meaning" should be arbitrary Unicode string.
+                    r"(?P<glyph_id>[[:xdigit:]]{4}) -> \{(?P<meaning>[[:xdigit:]]{4})}",
+                )
+                .unwrap()
+                .captures(line)
+                {
+                    Some(captures) => (
+                        captures.name("glyph_id").unwrap().as_str(),
+                        captures.name("meaning").unwrap().as_str(),
+                    ),
+                    None => ("", ""),
+                };
+                // println!("Line #{}# maps #{}# to #{}#", line, glyph_id, meaning);
+                ret.insert(
+                    u16::from_str_radix(glyph_id, 16).unwrap(),
+                    std::char::from_u32(u32::from_str_radix(meaning, 16).unwrap())
+                        .unwrap()
+                        .to_string(),
+                );
+            }
+        }
+        ret
+    }
+    if !font_glyph_mappings.contains_key(&current_font) {
+        let tmp = get_font_mapping(current_font);
+        font_glyph_mappings.insert(current_font, tmp);
+    }
+    let current_map = font_glyph_mappings.get(&current_font).unwrap();
+    // TODO: Replace by something more sophisticated. :-)
+    glyphs
+        .iter()
+        .map(|n| {
+            match current_map.get(n) {
+                Some(v) => v.to_string(),
+                None => {
+                    // println!("No mapping for {:04X}.", n);
+                    format!("{{{:04X}}}", n)
+                }
+            }
+            // if *n == 3 {
+            //     format!(" ")
+            // }
+        })
+        .join("")
+}
+
 fn process_text_operation(
     content: &mut lopdf::content::Content,
     i: usize,
     current_font: ObjectId,
     files: &mut TjFiles,
+    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
 ) -> usize {
     let op = &content.operations[i];
     let operator = &op.operator;
@@ -206,16 +278,68 @@ fn process_text_operation(
         .chunks(2)
         .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
         .collect();
+
+    // Option 1: Write to file.
     let file = files.get_file(current_font);
     let glyph_hexes: Vec<String> = glyphs.iter().map(|n| format!("{:04X} ", n)).collect();
     glyph_hexes
         .iter()
         .for_each(|g| file.write_all(g.as_bytes()).unwrap());
     file.write_all(b"\n").unwrap();
-    i
+
+    // Option 2: Wrap the operator in /ActualText.
+    /*
+    Before: content[i] = op.
+    After:
+            content[i] = BDC [/Span <</ActualText (...)>>]
+            content[i + 1] = op
+            content[i + 2] = EMC []
+     */
+    let mytext = actual_text_for(&glyphs, current_font, font_glyph_mappings);
+
+    fn encode_for_pdf_silly_actualtext(mytext: String) -> Vec<u8> {
+        /*
+        In the PDF 1.7 spec, see
+        •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
+        •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+        •   "7.9.2.2 Text String Type" (immediately following the above).
+         */
+
+        let mut ret: Vec<u8> = vec![254, 255];
+        for usv in mytext.encode_utf16() {
+            let bytes = usv.to_be_bytes();
+            assert_eq!(bytes.len(), 2);
+            for byte in &bytes {
+                ret.push(*byte);
+            }
+        }
+        ret
+    }
+
+    println!("Surrounding #{}#", mytext);
+    let dict = lopdf::dictionary!("ActualText" =>
+        lopdf::Object::String(encode_for_pdf_silly_actualtext(mytext),
+                              lopdf::StringFormat::Hexadecimal));
+    // println!("…this became: {:?}", dict);
+    content.operations.insert(
+        i,
+        lopdf::content::Operation::new(
+            "BDC",
+            vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
+        ),
+    );
+    content
+        .operations
+        .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
+    i + 2
 }
 
-fn print_text_operators_doc(document: &mut lopdf::Document, files: &mut TjFiles) {
+fn print_text_operators_doc(
+    document: &mut lopdf::Document,
+    filename: std::path::PathBuf,
+    files: &mut TjFiles,
+) {
+    let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
     let pages = document.get_pages();
     println!("{} pages in this document", pages.len());
     for (page_num, page_id) in pages {
@@ -257,9 +381,19 @@ fn print_text_operators_doc(document: &mut lopdf::Document, files: &mut TjFiles)
 
         let content_streams = document.get_page_contents(page_id);
         for object_id in content_streams {
-            process_text_operators_object(document, object_id, &fonts, &xobjects_dict, files);
+            process_text_operators_object(
+                document,
+                object_id,
+                &fonts,
+                &xobjects_dict,
+                files,
+                &mut font_glyph_mappings,
+            );
         }
     }
+    let new_filename = filename.with_extension("surrounded.pdf");
+    println!("Creating file: {:?}", new_filename);
+    document.save(new_filename).unwrap();
 }
 
 fn from_two_bytes(bytes: &[u8]) -> u16 {
@@ -350,5 +484,5 @@ fn main() {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     dump_tounicode_mappings(&document);
-    print_text_operators_doc(&mut document, &mut files);
+    print_text_operators_doc(&mut document, filename, &mut files);
 }

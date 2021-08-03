@@ -22,7 +22,3 @@ path = "src/dump-glyphs.rs"
 [[bin]]
 name = "dump-tjs"
 path = "src/dump-tjs.rs"
-
-[[bin]]
-name = "test-actualtext"
-path = "src/test-actualtext.rs"
