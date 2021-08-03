@@ -135,21 +135,7 @@ fn process_text_operators_object(
             // println!("Switching to font {}, which means {:?}", font_name, font_id);
             current_font = real_font_id(font_id, document).1;
         } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
-            for operand in &op.operands {
-                let bytes = operand.as_str().unwrap();
-                let glyphs: Vec<u16> = bytes
-                    .chunks(2)
-                    .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
-                    .collect();
-                // Write these to a file. Actually we could write directly from `bytes`....
-                let file = files.get_file(current_font);
-                let glyph_hexes: Vec<String> =
-                    glyphs.iter().map(|n| format!("{:04X} ", n)).collect();
-                glyph_hexes
-                    .iter()
-                    .for_each(|g| file.write_all(g.as_bytes()).unwrap());
-                file.write_all(b"\n").unwrap();
-            }
+            i = process_text_operation(&mut content, i, current_font, files);
         } else if operator == "Do" {
             assert_eq!(op.operands.len(), 1);
             let name = &op.operands[0].as_name_str().unwrap();
@@ -182,6 +168,51 @@ fn process_text_operators_object(
         }
         i += 1;
     }
+}
+
+fn process_text_operation(
+    content: &mut lopdf::content::Content,
+    i: usize,
+    current_font: ObjectId,
+    files: &mut TjFiles,
+) -> usize {
+    let op = &content.operations[i];
+    let operator = &op.operator;
+    let mut bytes: Vec<u8> = Vec::new();
+    let text: &[u8] = if operator == "Tj" || operator == "'" {
+        assert_eq!(op.operands.len(), 1);
+        op.operands[0].as_str().unwrap()
+    } else if operator == "\"" {
+        assert_eq!(op.operands.len(), 3);
+        op.operands[2].as_str().unwrap()
+    } else if operator == "TJ" {
+        assert_eq!(op.operands.len(), 1);
+        let operands = op.operands[0].as_array().unwrap();
+        for element in operands {
+            if let Ok(s) = element.as_str() {
+                bytes.extend(s);
+            } else if let Ok(_) = element.as_f64() {
+                //
+            } else {
+                assert!(false, "TJ operator wasn't str or number: {:#?}", element);
+            }
+        }
+        bytes.as_slice()
+    } else {
+        unreachable!();
+    };
+
+    let glyphs: Vec<u16> = text
+        .chunks(2)
+        .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
+        .collect();
+    let file = files.get_file(current_font);
+    let glyph_hexes: Vec<String> = glyphs.iter().map(|n| format!("{:04X} ", n)).collect();
+    glyph_hexes
+        .iter()
+        .for_each(|g| file.write_all(g.as_bytes()).unwrap());
+    file.write_all(b"\n").unwrap();
+    i
 }
 
 fn print_text_operators_doc(document: &mut lopdf::Document, files: &mut TjFiles) {
