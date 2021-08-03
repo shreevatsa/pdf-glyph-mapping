@@ -316,7 +316,7 @@ fn process_text_operation(
         ret
     }
 
-    println!("Surrounding #{}#", mytext);
+    // println!("Surrounding #{}#", mytext);
     let dict = lopdf::dictionary!("ActualText" =>
         lopdf::Object::String(encode_for_pdf_silly_actualtext(mytext),
                               lopdf::StringFormat::Hexadecimal));
@@ -484,5 +484,10 @@ fn main() {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     dump_tounicode_mappings(&document);
+    let guard = pprof::ProfilerGuard::new(100).unwrap();
     print_text_operators_doc(&mut document, filename, &mut files);
+    if let Ok(report) = guard.report().build() {
+        let file = File::create("flamegraph.svg").unwrap();
+        report.flamegraph(file).unwrap();
+    };
 }

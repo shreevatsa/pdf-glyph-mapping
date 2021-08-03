@@ -32,6 +32,7 @@ def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
 class HtmlWriter:
     def __init__(self, font_id, font_name, filename_helper, num_glyphs, to_unicode) -> None:
         self.helper = devnagri_pdf_text.Font(filename_helper) if filename_helper else None
+        self.filename_helper = filename_helper
         self.font_id = font_id
         self.font_name = font_name
         self.num_glyphs = num_glyphs
@@ -78,7 +79,7 @@ class HtmlWriter:
         else:
             help = self.helper.id_unicode_raw(int(glyph, 16)) if self.helper else None
             if help:
-                description = f'(mapped using the helper font to {help}'
+                description = f'(mapped using the helper font {self.filename_helper} to {help}'
             else:
                 description = '(not mapped to Unicode in the PDF or the helper font)'
         print(f'For glyph {glyph}, have samples {sample_runs}.')
@@ -95,7 +96,7 @@ class HtmlWriter:
 if __name__ == '__main__':
     random.seed(42)
     filename_font = sys.argv[1]  # E.g. font-40532.ttf
-    filename_helper = sys.argv[2] if len(sys.argv) > 2 else None # E.g. noto.ttx
+    filename_helper = sys.argv[2] if len(sys.argv) > 2 else None  # E.g. noto.ttx
     font_id = re.search(f'font-([0-9]*).ttf', filename_font).group(1)
     filename_tjs = f"Tjs-{font_id}-0"
 
