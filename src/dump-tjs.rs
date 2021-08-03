@@ -100,13 +100,13 @@ fn real_font_id(font_reference_id: ObjectId, document: &lopdf::Document) -> (Str
 
 /// Writes the text operators from `content` into corresponding `files`.
 fn process_text_operators_object(
-    document: &lopdf::Document,
+    document: &mut lopdf::Document,
     object_id: ObjectId,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
     files: &mut TjFiles,
 ) {
-    let content: lopdf::content::Content = {
+    let mut content: lopdf::content::Content = {
         let mut content_u8 = Vec::new();
         if let Ok(content_stream) = document
             .get_object(object_id)
@@ -121,7 +121,9 @@ fn process_text_operators_object(
     };
     // println!("Finding text operators in: {:?}", content);
     let mut current_font: ObjectId = (0, 0);
-    for op in &content.operations {
+    let mut i = 0;
+    while i < content.operations.len() {
+        let op = &content.operations[i];
         let operator = &op.operator;
         if operator == "Tf" {
             let font_name = op.operands[0].as_name_str().unwrap();
@@ -158,7 +160,7 @@ fn process_text_operators_object(
                     id = ref_id;
                     object = document.objects.get(&ref_id).unwrap();
                 }
-                (id, object.as_stream().unwrap())
+                (id, object.as_stream().unwrap().clone())
             };
             let empty_dict = lopdf::Dictionary::new();
             let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
@@ -171,15 +173,18 @@ fn process_text_operators_object(
                 }
                 Err(_) => (&empty_dict, &empty_dict),
             };
-            // println!("Fonts and XObjects? {:?} and {:?}", fonts, xobjects_dict);
             process_text_operators_object(document, object_id, fonts, xobjects_dict, files);
         } else {
-            // println!("Not a text-showing operator: {} {:?}", &s, op.operands);
+            // println!(
+            //     "Not a text-showing operator: {} {:?}",
+            //     &operator, op.operands
+            // );
         }
+        i += 1;
     }
 }
 
-fn print_text_operators_doc(document: &lopdf::Document, files: &mut TjFiles) {
+fn print_text_operators_doc(document: &mut lopdf::Document, files: &mut TjFiles) {
     let pages = document.get_pages();
     println!("{} pages in this document", pages.len());
     for (page_num, page_id) in pages {
@@ -286,10 +291,7 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                         writeln!(&mut writer, "{:04X} -> {:04X?}", k, mapped[k]).unwrap();
                     }
                 } else {
-                    println!(
-                        "Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)",
-                        font_id, base_font_name
-                    );
+                    println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
                 }
             }
         }
@@ -312,10 +314,10 @@ fn main() {
 
     let start = std::time::Instant::now();
     println!("Loading {:?}", filename);
-    let document = lopdf::Document::load(&filename).expect("could not load PDF file");
+    let mut document = lopdf::Document::load(&filename).expect("could not load PDF file");
     let end = std::time::Instant::now();
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     dump_tounicode_mappings(&document);
-    print_text_operators_doc(&document, &mut files);
+    print_text_operators_doc(&mut document, &mut files);
 }
