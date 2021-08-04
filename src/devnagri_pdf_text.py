@@ -1,68 +1,79 @@
 import re
+from collections import defaultdict
+import random
+from typing import Dict
 
 
 class Font:
     def __init__(self, filename_helper):
         ttx = open(filename_helper).read()
-        self.id_aksrnam = {int(s.split('"')[1]): s.split('"')[3] for s in re.findall(r'<GlyphID id=.*/>', ttx)}
-        self.aksrnam_id = {s.split('"')[3]: int(s.split('"')[1]) for s in re.findall(r'<GlyphID id=.*/>', ttx)}
-        self.aksrnam_unicode = {s.split('"')[3]: chr(int(s.split('"')[1][2:], 16)) for s in re.findall(r'<map code=.*/>', ttx)}
+        # Example:
+        #     <GlyphID id="6" name="anusvaradeva"/>
+        self.glyph_name_for_id: Dict[int, str] = {int(s.split('"')[1]): s.split('"')[3] for s in re.findall(r'<GlyphID id=.*/>', ttx)}
+        self.glyph_id_for_name: Dict[str, int] = {s.split('"')[3]: int(s.split('"')[1]) for s in re.findall(r'<GlyphID id=.*/>', ttx)}
+        # Example:
+        #      <map code="0x902" name="anusvaradeva"/><!-- DEVANAGARI SIGN ANUSVARA -->
+        self.codepoint_for_name: Dict[str, str] = {s.split('"')[3]: chr(int(s.split('"')[1][2:], 16)) for s in re.findall(r'<map code=.*/>', ttx)}
 
-        self.aksrnam_datvh = dict()
+        self.ligature_parts = defaultdict(list)
+        # Example:
+        #   <LigatureSet glyph="dadeva">
+        #     <Ligature components="viramadeva,vadeva" glyph="davadeva"/>
+        #     <Ligature components="viramadeva,yadeva" glyph="dayadeva"/>
+        #   </LigatureSet>
         for s in re.findall(r'<LigatureSet.*?</LigatureSet>', ttx, re.DOTALL):
-            prtmdatuh = s.split('"')[1]
+            initial = s.split('"')[1]  # Example: dadeva
             for t in re.findall(r'<Ligature components=.*/>', s):
-                self.aksrnam_datvh[t.split('"')[3]] = [prtmdatuh] + t.split('"')[1].split(',')
+                sequence = t.split('"')[1].split(',')  # Example: viramadeva,yadeva
+                result = t.split('"')[3]  # Example: dayadeva
+                self.ligature_parts[result].append([initial] + sequence)
 
-        self.adesah = []
+        self.adesah = defaultdict(list)
+        # Example:
+        #  <Substitution in="odeva" out="aadeva,evowelsigndeva"/>
         for s in re.findall(r'<Substitution in=.*/>', ttx):
-            self.adesah.append((s.split('"')[3].split(','), s.split('"')[1]))
+            s_out = s.split('"')[3].split(',')  # Example: ['aadeva','evowelsigndeva']
+            s_in = s.split('"')[1]  # Example: 'odeva'
+            if len(s_out) != 1:
+                continue
+            s_out = s_out[0]
+            self.adesah[s_out].append(s_in)
+            if len(self.adesah[s_out]) > 1:
+                print(f'For {s_out}, multiple choices: {self.adesah[s_out]}')
 
-    def id_unicode_raw(self, id, prkriya=False):
-        if type(id) == list:
-            idn = []
-            i = 0
-            while i < len(id):
-                j = i + 1
-                # while j < len(id) and self.id_aksrnam[id[j]] in self.pscimah:
-                #	idn.append(id[j])
-                #	j += 1
-                idn.append(id[i])
-                i = j
-            return ''.join([self.id_unicode_raw(i, prkriya) for i in idn])
+    def unicode_for_glyph_id(self, glyph_id, depth=0):
+        '''The sequence of Unicode scalar values (codepoints) for a given glyph_id.'''
+        prefix = '    ' * depth
+        print(f'{prefix}For glyph_id {glyph_id}:')
+        aksrnam = self.glyph_name_for_id[glyph_id]
+        # Case 1: This name has already been mapped directly.
+        if aksrnam in self.codepoint_for_name:
+            print(f'{prefix}  Directly mapped: {aksrnam} -> {self.codepoint_for_name[aksrnam]}')
+            return self.codepoint_for_name[aksrnam], 1
+        print(f'{prefix}  Unicode for name {aksrnam} not found directly mapped.')
+        # Case 2: This name is the result from a LigatureSet.
+        if aksrnam in self.ligature_parts:
+            for sequence in self.ligature_parts[aksrnam]:
+                print(f'{prefix}  Trying parts: {aksrnam} -> {sequence}')
+                part_results = []
+                for ligature_part in sequence:
+                    part_result = self.unicode_for_glyph_id(self.glyph_id_for_name[ligature_part], depth + 1)
+                    print(f'{prefix}  Result for part {ligature_part} is {part_result}')
+                    part_results.append(part_result[0])
+                print(f'{prefix}part_results: {part_results}')
+                return ''.join(part_results), 2
+        # Case 3: This name is known as the "out" of a substitution.
+        if aksrnam in self.adesah:
+            print(f'{prefix}  Trying subst: {aksrnam} -> {self.adesah[aksrnam]}')
+            some_in = random.choice(self.adesah[aksrnam])
+            if len(self.adesah[aksrnam]) > 1:
+                print(f'{prefix}  For glyph_id {glyph_id}={glyph_id:04X} (name {aksrnam}), picking a random choice {some_in} from {self.adesah[aksrnam]}')
+            return self.unicode_for_glyph_id(self.glyph_id_for_name[some_in], depth + 1)[0], 3
 
-        aksrnam = self.id_aksrnam[id]
+        return None, 4
 
-        if aksrnam in self.aksrnam_unicode.keys():
-            if prkriya:
-                print(aksrnam)
-            return self.aksrnam_unicode[aksrnam]
-
-        if aksrnam in self.aksrnam_datvh.keys():
-            if prkriya:
-                print('धात॑वः ' + aksrnam + ' > ' + ' + '.join(self.aksrnam_datvh[aksrnam]))
-            return self.id_unicode_raw([self.aksrnam_id[datuh] for datuh in self.aksrnam_datvh[aksrnam]], prkriya)
-
-        for adesh in self.adesah:
-            if len(adesh[0]) == 1 and adesh[0][0] == aksrnam:
-                if prkriya:
-                    print('आ॒दे॒शः ' + aksrnam + ' > ' + self.adesh_aksrnam[aksrnam])
-                return self.id_unicode_raw(self.aksrnam_id[adesh[1]])
-
-        return ''
-
-    def id_unicode(self, id):
-        r = self.id_unicode_raw(id)
+    @ staticmethod
+    def normalize(r):
         r = re.sub(r'ि(([क-ह]्)*[क-ह])', r'\1ि', r)
         r = re.sub(r'(([क-ह]्)*[क-ह][^क-ह]*)र्', r'र्\1', r)
         return r
-
-    def pdf_unicode(self, pdf):
-        ls = open(pdf, 'rb').readlines()
-        textlines = [line.strip() for line in ls if line.strip().endswith(b'Tj')]
-        actual = [line.decode('ascii')[1:-4] for line in textlines]
-        for s in actual:
-            assert len(s) % 4 == 0
-        parts = [[s[i:i+4] for i in range(0, len(s), 4)] for s in actual]
-
-        return '\n'.join([self.id_unicode(int(part, 16)) + ' ' + str(int(part, 16)) for line in parts for part in line])

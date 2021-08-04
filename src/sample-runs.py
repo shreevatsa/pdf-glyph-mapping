@@ -76,13 +76,16 @@ class HtmlWriter:
             c = chr(int(uni, 16))
             name = unicodedata.name(c)
             description = f'(mapped in the PDF to 0x{uni} = {c} = {name})'
+        # Available since Python 3.8: https://www.python.org/dev/peps/pep-0572/#examples
+        # elif help := self.helper.unicode_for_glyph_id(int(glyph, 16)) if self.helper else None:
         else:
-            help = self.helper.id_unicode_raw(int(glyph, 16)) if self.helper else None
+            print(f'Seeking unicode for glyph {glyph} = {int(glyph, 16)}')
+            help, case = self.helper.unicode_for_glyph_id(int(glyph, 16)) if self.helper else None
             if help:
-                description = f'(mapped using the helper font {self.filename_helper} to {help}'
+                description = f'(mapped using the helper font {self.filename_helper} to {help} (case {case})'
             else:
                 description = '(not mapped to Unicode in the PDF or the helper font)'
-        print(f'For glyph {glyph}, have samples {sample_runs}.')
+        # print(f'For glyph {glyph}, generated samples {sample_runs}.')
         self.added += 1
         self.html += fr'''
 <hr>
@@ -117,7 +120,7 @@ if __name__ == '__main__':
     reservoir = defaultdict(list)  # A few samples for each glyph.
     seen = defaultdict(int)  # How many times each glyph was seen.
     for (n, line) in enumerate(lines):
-        if n > 0 and n % 10000 == 0:
+        if n > 0 and n % 100000 == 0:
             print(f'({n * 100.0 / len(lines):05.2f}%) Done {n:7} lines of {len(lines)}.')
         # s = line.strip()
         # assert len(s) % 4 == 0
