@@ -31,7 +31,7 @@ def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
 
 class HtmlWriter:
     def __init__(self, font_id, font_name, filename_helper, num_glyphs, to_unicode) -> None:
-        self.helper = devnagri_pdf_text.Font(filename_helper) if filename_helper else None
+        self.helper = devnagri_pdf_text.Font(open(filename_helper).read()) if filename_helper else None
         self.filename_helper = filename_helper
         self.font_id = font_id
         self.font_name = font_name
@@ -100,6 +100,7 @@ if __name__ == '__main__':
     random.seed(42)
     filename_font = sys.argv[1]  # E.g. font-40532.ttf
     filename_helper = sys.argv[2] if len(sys.argv) > 2 else None  # E.g. noto.ttx
+    devnagri_pdf_text.Font(open(filename_helper).read())
     font_id = re.search(f'font-([0-9]*).ttf', filename_font).group(1)
     filename_tjs = f"Tjs-{font_id}-0"
 

@@ -5,15 +5,53 @@ from typing import Dict
 
 
 class Font:
-    def __init__(self, filename_helper):
-        ttx = open(filename_helper).read()
+    """
+    Search a font's ttx to find Unicode scalar values (codepoints) for a glyph id.
+
+    Basically, the font may contain a CMap table mapping glyph names to Unicode codepoints.
+    These would be represented in the ttx dump like:
+
+            <map code="0x902" name="anusvaradeva"/><!-- DEVANAGARI SIGN ANUSVARA -->
+
+    Using this and other information in the file, there are three ways in which we may go
+    from (glyph id to) glyph name to codepoints:
+
+    1.  The name is already mapped directly:
+
+            <GlyphID id="6" name="anusvaradeva"/>
+            ...
+            <map code="0x902" name="anusvaradeva"/><!-- DEVANAGARI SIGN ANUSVARA -->
+
+    2.  The name is the result of a ligature substitution (from the GSUB table):
+
+            <GlyphID id="276" name="baradeva"/>
+            ...
+            <LigatureSet glyph="badeva">
+              <Ligature components="viramadeva,radeva" glyph="baradeva"/>
+            </LigatureSet>
+            ...
+            <map code="0x92c" name="badeva"/><!-- DEVANAGARI LETTER BA -->
+            <map code="0x94d" name="viramadeva"/><!-- DEVANAGARI SIGN VIRAMA -->
+            <map code="0x930" name="radeva"/><!-- DEVANAGARI LETTER RA -->
+
+    3.  The name is the result of a (non-ligature) substitution (from the GSUB table):
+
+            <GlyphID id="580" name="ladevaMAR"/>
+            ...
+            <Substitution in="ladeva" out="ladevaMAR"/>
+            ...
+            <map code="0x932" name="ladeva"/><!-- DEVANAGARI LETTER LA -->
+    """
+
+    def __init__(self, ttx):
+        unicode_codepoints_for_glyph_id(ttx)
+        # Example:
+        #      <map code="0x902" name="anusvaradeva"/><!-- DEVANAGARI SIGN ANUSVARA -->
+        self.codepoint_for_name: Dict[str, str] = {s.split('"')[3]: chr(int(s.split('"')[1][2:], 16)) for s in re.findall(r'<map code=.*/>', ttx)}
         # Example:
         #     <GlyphID id="6" name="anusvaradeva"/>
         self.glyph_name_for_id: Dict[int, str] = {int(s.split('"')[1]): s.split('"')[3] for s in re.findall(r'<GlyphID id=.*/>', ttx)}
         self.glyph_id_for_name: Dict[str, int] = {s.split('"')[3]: int(s.split('"')[1]) for s in re.findall(r'<GlyphID id=.*/>', ttx)}
-        # Example:
-        #      <map code="0x902" name="anusvaradeva"/><!-- DEVANAGARI SIGN ANUSVARA -->
-        self.codepoint_for_name: Dict[str, str] = {s.split('"')[3]: chr(int(s.split('"')[1][2:], 16)) for s in re.findall(r'<map code=.*/>', ttx)}
 
         self.ligature_parts = defaultdict(list)
         # Example:
@@ -72,8 +110,8 @@ class Font:
 
         return None, 4
 
-    @ staticmethod
-    def normalize(r):
-        r = re.sub(r'ि(([क-ह]्)*[क-ह])', r'\1ि', r)
-        r = re.sub(r'(([क-ह]्)*[क-ह][^क-ह]*)र्', r'र्\1', r)
-        return r
+
+def normalize(r):
+    r = re.sub(r'ि(([क-ह]्)*[क-ह])', r'\1ि', r)
+    r = re.sub(r'(([क-ह]्)*[क-ह][^क-ह]*)र्', r'र्\1', r)
+    return r
