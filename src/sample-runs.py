@@ -31,13 +31,13 @@ def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
 
 class HtmlWriter:
     def __init__(self, font_id, font_name, filename_helper, num_glyphs, to_unicode) -> None:
-        self.helper = devnagri_pdf_text.Font(open(filename_helper).read()) if filename_helper else None
-        self.filename_helper = filename_helper
         self.font_id = font_id
         self.font_name = font_name
+        self.helper_glyph_name_for_glyph_id, self.helper_sequences_for_name = devnagri_pdf_text.unicode_codepoints_for_glyph_id(open(filename_helper).read()) if filename_helper else None
         self.num_glyphs = num_glyphs
         self.to_unicode = to_unicode
         self.added = 0
+
         self.html = r'''
 <!doctype html>
 <html>
@@ -46,7 +46,7 @@ class HtmlWriter:
     box-sizing: border-box;
 }
 .glyph-main {
-    background-color:white; 
+    background-color:white;
     border:1px dotted red;
 }
 .glyph-other {
@@ -57,40 +57,56 @@ class HtmlWriter:
 <body>
 ''' + rf'''
 <h1>{font_name}</h1>
+<p>Using helper font {filename_helper}.</p>
 <dl>'''
         self.footer = r'''
 </body>
 </html>'''
 
-    def glyph(self, main_glyph, glyph):
+    def img_for_glyph(self, main_glyph, glyph):
         filename = f'font-{self.font_id}-glyph-{glyph}.png'
         classname = "glyph-main" if glyph == main_glyph else "glyph-other"
         return f'<img title="{glyph}" src="{filename}" class="{classname}"/>'
 
     def run(self, main_glyph, sample_run):
-        return f'<dd>{"".join(self.glyph(main_glyph, glyph) for glyph in sample_run)}</dd>'
+        return f'<dd>{"".join(self.img_for_glyph(main_glyph, glyph) for glyph in sample_run)}</dd>'
 
-    def add(self, glyph, sample_runs):
-        uni = to_unicode.get(glyph)
+    def add(self, glyph_id_str, times_seen, sample_runs):
+        uni = to_unicode.get(glyph_id_str)
         if uni:
             c = chr(int(uni, 16))
             name = unicodedata.name(c)
-            description = f'(mapped in the PDF to 0x{uni} = {c} = {name})'
-        # Available since Python 3.8: https://www.python.org/dev/peps/pep-0572/#examples
-        # elif help := self.helper.unicode_for_glyph_id(int(glyph, 16)) if self.helper else None:
+            mapped_pdf = f'mapped in the PDF to 0x{uni} = {c} = {name}.'
         else:
-            print(f'Seeking unicode for glyph {glyph} = {int(glyph, 16)}')
-            help, case = self.helper.unicode_for_glyph_id(int(glyph, 16)) if self.helper else None
-            if help:
-                description = f'(mapped using the helper font {self.filename_helper} to {help} (case {case})'
+            mapped_pdf = f'Not mapped in the PDF.'
+        if self.helper_glyph_name_for_glyph_id:
+            glyph_id = int(glyph_id_str, 16)
+            name = self.helper_glyph_name_for_glyph_id.get(glyph_id)
+            if name:
+                mapped_helper = f'Mapped using the helper font to name {name}:'
+                sequences = self.helper_sequences_for_name.get(name, [])
+                mapped_helper_sequences = []
+                for sequence in sequences:
+                    as_str = ''.join(chr(c) for c in sequence)
+                    as_names = ' followed by '.join(
+                        f'{c:04X} (={unicodedata.name(chr(c))})' for c in sequence)
+                    mapped_helper_sequences.append(f'{as_str} ({as_names})')
             else:
-                description = '(not mapped to Unicode in the PDF or the helper font)'
-        # print(f'For glyph {glyph}, generated samples {sample_runs}.')
+                mapped_helper = f'(no name in helper for {glyph_id_str})'
+                mapped_helper_sequences = []
+        else:
+            mapped_helper = '(no helper)'
+            mapped_helper_sequences = []
         self.added += 1
         self.html += fr'''
 <hr>
-<dt>{glyph} {description} (Glyph {self.added} of {self.num_glyphs})</dt>
-{chr(10).join(self.run(glyph, sample_run) for sample_run in sample_runs)}
+<dt>
+  <p>Glyph ID {glyph_id_str} (Seen {times_seen} times; glyph {self.added} of {self.num_glyphs})</p>
+  <p>{mapped_pdf}</p>
+  <p>{mapped_helper} {f'({len(mapped_helper_sequences)} sequences)' if len(mapped_helper_sequences) > 1 else ''}</p>
+  {chr(10).join('<li>' + sequence + '</li>' for sequence in mapped_helper_sequences)}
+</dt>
+{chr(10).join(self.run(glyph_id_str, sample_run) for sample_run in sample_runs)}
 <hr>
 </div>
         '''
@@ -100,7 +116,6 @@ if __name__ == '__main__':
     random.seed(42)
     filename_font = sys.argv[1]  # E.g. font-40532.ttf
     filename_helper = sys.argv[2] if len(sys.argv) > 2 else None  # E.g. noto.ttx
-    devnagri_pdf_text.Font(open(filename_helper).read())
     font_id = re.search(f'font-([0-9]*).ttf', filename_font).group(1)
     filename_tjs = f"Tjs-{font_id}-0"
 
@@ -131,15 +146,15 @@ if __name__ == '__main__':
         all_parts = s
         actual_parts = split_list(all_parts, '0003')
         for parts in actual_parts:
-            for glyph in parts:
-                seen[glyph] += 1
-                r = reservoir[glyph]
+            for glyph_id_str in parts:
+                seen[glyph_id_str] += 1
+                r = reservoir[glyph_id_str]
                 # The second condition here makes it slightly different from the usual.
                 if len(r) < samples_max:
                     if parts not in r:
                         r.append(parts)
                 else:
-                    m = random.randrange(0, seen[glyph])
+                    m = random.randrange(0, seen[glyph_id_str])
                     # If seen[glyph] = N, then m is uniformly distributed over the N values [0..N).
                     # So the probability that m < samples_max is samples_max / N,
                     # which is precisely what we want.
@@ -147,6 +162,6 @@ if __name__ == '__main__':
                         r[m] = parts
 
     h = HtmlWriter(font_id, fontname, filename_helper, len(seen), to_unicode)
-    for glyph in sorted(seen, key=lambda k: seen[k], reverse=True):
-        h.add(glyph, reservoir[glyph])
+    for glyph_id_str in sorted(seen, key=lambda k: (seen[k], k), reverse=True):
+        h.add(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
     open(filename_font + '.html', 'w').write(h.html + h.footer)

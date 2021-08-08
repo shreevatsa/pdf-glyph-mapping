@@ -297,7 +297,7 @@ fn process_text_operation(
      */
     let mytext = actual_text_for(&glyphs, current_font, font_glyph_mappings);
 
-    fn encode_for_pdf_silly_actualtext(mytext: String) -> Vec<u8> {
+    fn encode_for_pdf_silly_actualtext(mytext: &str) -> Vec<u8> {
         /*
         In the PDF 1.7 spec, see
         •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
@@ -318,7 +318,7 @@ fn process_text_operation(
 
     // println!("Surrounding #{}#", mytext);
     let dict = lopdf::dictionary!("ActualText" =>
-        lopdf::Object::String(encode_for_pdf_silly_actualtext(mytext),
+        lopdf::Object::String(encode_for_pdf_silly_actualtext(&mytext),
                               lopdf::StringFormat::Hexadecimal));
     // println!("…this became: {:?}", dict);
     content.operations.insert(
