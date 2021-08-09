@@ -39,12 +39,12 @@
 import re
 from collections import defaultdict, deque
 import inspect
-from typing import Dict
 
 
 def dprint(*args, **kwargs):
     prefix = '    ' * (len(inspect.stack(0)) - 1)
-    print(prefix, *args, **kwargs)
+    if False:
+        print(prefix, *args, **kwargs)
 
 
 def unicode_codepoints_for_glyph_id(ttx: str):

@@ -11,3 +11,5 @@ Cargo.lock
 
 # The .ttf files that get dumped by doit.sh
 /tmp/font-*.ttf
+/tmp-[0-9]*
+/helper_fonts/*.ttx
