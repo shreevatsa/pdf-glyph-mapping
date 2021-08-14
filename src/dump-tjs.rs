@@ -189,9 +189,9 @@ fn actual_text_for(
     // println!("Looking up font {:?}", current_font);
 
     fn get_font_mapping(font_id: ObjectId) -> HashMap<u16, String> {
-        let filename = filename_for_font(font_id) + ".map";
-        let s = std::fs::read_to_string(filename).unwrap();
         let mut ret = HashMap::<u16, std::string::String>::new();
+        let filename1 = filename_for_font(font_id) + ".map";
+        let s = std::fs::read_to_string(filename1).unwrap();
         for (i, line) in s.lines().enumerate() {
             if i > 0 {
                 let (glyph_id, meaning) = match regex::Regex::new(
@@ -216,6 +216,10 @@ fn actual_text_for(
                 );
             }
         }
+        let filename2 = "manual.toml";
+        let toml_string = std::fs::read_to_string(filename2).unwrap();
+        let config: toml::Value = toml::from_str(&toml_string).unwrap();
+        println!("{:#?}", config);
         ret
     }
     if !font_glyph_mappings.contains_key(&current_font) {

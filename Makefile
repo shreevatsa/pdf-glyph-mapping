@@ -1,42 +1,63 @@
 ORIG=../gp-mbh/unabridged
 ORIG_PDF=${ORIG}.pdf
-ORIG_PDF_DONE=${ORIG_PDF}.extracted
 HELPER=helper_fonts/NotoSansDevanagari-Regular.ttx
 
-all: $(ORIG).surrounded.pdf
+# Steps:
+# Graph from https://gist.github.com/shreevatsa/9a07d68931cd2167e12db4008eef5715 using https://dot-to-ascii.ggerganov.com/
+#                         ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+#                         │                                                                                                                                                                                                                                     ▼
+# ┏━━━━━━━━━━━━━━━┓     ┏━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━┓     ┌−−−−−−−−−−−−−┐     ┏━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━┓     ┌−−−−−┐     ┏━━━━━━━━━━━━━━━━┓
+# ┃ helper_fonts/ ┃     ┃ ORIG.pdf ┃ ──▶ ╎ mutool-extract.sh ╎ ──▶ ┃ fonts/ ┃ ──▶ ╎ dump-glyphs ╎ ──▶ ┃ glyphs/ ┃ ──▶ ╎                ╎ ──▶ ┃ maps/look/ ┃ ──▶ ╎ manual intervention ╎ ──▶ ┃ maps/manual/ ┃ ──▶ ╎ validate-maps.py ╎ ──▶ ┃ maps/valid/ ┃ ──▶ ╎ fix ╎ ──▶ ┃ ORIG.fixed.pdf ┃
+# ┗━━━━━━━━━━━━━━━┛     ┗━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━┛     └−−−−−−−−−−−−−┘     ┗━━━━━━━━━┛     ╎                ╎     ┗━━━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━━━━━━┛     └−−−−−┘     ┗━━━━━━━━━━━━━━━━┛
+#   │                     │                                          │                                                ╎                ╎
+#   │                     │                                          └──────────────────────────────────────────────▶ ╎ sample-runs.py ╎
+#   │                     ▼                                                                                           ╎                ╎
+#   │                   ┌−−−−−−−−−−┐     ┏━━━━━━━━━━━━━━━━━━━┓                                                        ╎                ╎
+#   │                   ╎ dump-Tj  ╎ ──▶ ┃    font-usage/    ┃ ─────────────────────────────────────────────────────▶ ╎                ╎
+#   │                   └−−−−−−−−−−┘     ┗━━━━━━━━━━━━━━━━━━━┛                                                        └−−−−−−−−−−−−−−−−┘
+#   │                                                                                                                   ▲
+#   └───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+#
+# Legend:
+#                       ┏━━━━━━━━━━┓
+#                       ┃   ...    ┃             files
+#                       ┗━━━━━━━━━━┛
+#                       ┌−−−−−−−−−−┐
+#                       ╎   ...    ╎            program
+#                       └−−−−−−−−−−┘
+
+all: $(ORIG).fixed.pdf
 
 $(ORIG_PDF):
-	echo "File ${ORIG_PDF} does not exist."
+	@echo "File ${ORIG_PDF} does not exist."; false
 
-# ORIG.pdf   --[mutool extract]--> font-N.ttf    (for several N)
+# ORIG.pdf  ---[mutool-extract.sh]--->  fonts/font-N.ttf    (for several N)
 # mutool-extract.sh simply runs `mutool extract` but in a temporary directory.
-font-%.ttf: ${ORIG_PDF}
+fonts/: ${ORIG_PDF}
 	sh mutool-extract.sh ${ORIG_PDF}
 
-# ORIG.pdf   -----[dump-tjs]-----> Tjs-N and Tjs-N.map (maybe: font-N.tjs and font-N.toml)
-Tjs-%: ${ORIG_PDF}
+# ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml} (but for now, Tjs-N and Tjs-N.map)
+font-usage/: ${ORIG_PDF}
 	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF}
 
-# font-N.ttf ---[dump-glyphs]----> font-N-glyph-M.png
-glyphs/font-%: font-%.ttf
+# fonts/font-N.ttf  ---[dump-glyphs]--->  glyphs/font-N/glyph-M.png
+glyphs/font-%/: fonts/font-%.ttf fonts/
 	RUST_BACKTRACE=1 cargo run --release --bin dump-glyphs -- $<
 
-# font-N.ttf and helper-i.ttx ---[sample-runs.py]---> font-N.html (maybe also: font-N.helped.toml)
-font-%.html: font-%.ttf Tjs-% glyphs/font-%
-	python3 ../src/sample-runs.py $< ${HELPER}
+# font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}
+maps/look/: font-usage/ helper_fonts/ glyphs/
+	python3 ../src/sample-runs.py
+	# Replace `open` with `xdg-open` on Linux, maybe?
+	for f in maps/look/*.html; do open $$f; done
 
-# Manual intervention: use the .html file to edit font-N.helped.toml into font-N.manual.toml
-font-%.manual.toml: font-%.helped.toml font-%.html ${ORIG_PDF}
-	echo "Manually edit $< into $@ using $(word 2,$^)."
+# Manual intervention: use the .html file to edit maps/look/font-N.toml into maps/manual/font-N.toml
+maps/manual/: maps/look/
+	echo "Manually edit maps/look/font-*.toml into corresponding maps/manual/font-*.toml using the HTML files."; false
 
-# font-N.manual.toml ---[validate-toml.py]---> font-N.final.toml
-font-%.final.toml: font-%.manual.toml ${ORIG_PDF}
-	python3 src/validate-toml.py $< $@
+# maps/manual/font-N.toml ---[validate-toml.py]---> maps/valid/font-N.toml
+maps/valid/: maps/manual/ maps/look/
+	python3 src/validate-toml.py maps/manual/ maps/valid/
 
-# Dummy
-font-*.final.toml: ${ORIG_PDF} font-*.manual.toml
-	@echo "Run something like make"; false
-
-# ORIG.pdf and font-N.final.toml ---[dump-tjs]---> ORIG.surrounded.pdf
-$(ORIG).surrounded.pdf: ${ORIG_PDF} font-*.final.toml
+# ORIG.pdf and maps/valid/font-N.toml ---[dump-tjs]---> ORIG.fixed.pdf
+$(ORIG).fixed.pdf: ${ORIG_PDF} maps/valid/
 	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF}

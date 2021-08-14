@@ -8,3 +8,5 @@ rm image-*.{png,jpg} || true
 mv -i *.ttf ..
 cd -
 rmdir ${tmpdir}
+mkdir -p fonts/
+mv -iv font-*.ttf fonts/
