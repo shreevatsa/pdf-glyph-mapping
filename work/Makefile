@@ -1,7 +1,6 @@
 ORIG=../../gp-mbh/unabridged
 # ORIG=../../page-200/out-mbh
 ORIG_PDF=${ORIG}.pdf
-HELPER=helper_fonts/NotoSansDevanagari-Regular.ttx
 
 # Steps:
 # Graph from https://gist.github.com/shreevatsa/9a07d68931cd2167e12db4008eef5715 using https://dot-to-ascii.ggerganov.com/
@@ -42,8 +41,10 @@ font-usage/: ${ORIG_PDF}
 	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase1
 
 # fonts/font-N.ttf  ---[dump-glyphs]--->  glyphs/font-N/glyph-M.png
-glyphs/font-%/: fonts/font-%.ttf fonts/
-	RUST_BACKTRACE=1 cargo run --release --bin dump-glyphs -- $<
+glyphs/: fonts/
+	for f in fonts/font-*.ttf; do \
+		RUST_BACKTRACE=1 cargo run --release --bin dump-glyphs -- $$f glyphs/; \
+	done
 
 # font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}
 maps/look/: font-usage/ helper_fonts/ glyphs/

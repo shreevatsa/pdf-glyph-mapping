@@ -1,44 +1,39 @@
-use ab_glyph;
+use ab_glyph::Font;
+use anyhow::{Context, Result};
 use clap::Clap;
 use image::{DynamicImage, Rgba};
-use regex::Regex;
 
-fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
-    use ab_glyph::Font;
-    let file_bytes = &std::fs::read(&filename).unwrap();
-    // TODO: take the font_id as input, instead of parsing from filename!
-    let font_id = match Regex::new(r"font-(?P<font_id>[0-9]*).ttf$")
-        .unwrap()
-        .captures(filename.to_str().unwrap())
-    {
-        Some(captures) => captures.name("font_id").unwrap().as_str(),
-        None => "",
-    };
+fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
+    let filename = opts.font_file;
+    let output_dir = std::path::Path::new(&opts.output_dir).join(filename.file_name().unwrap());
+    std::fs::create_dir_all(output_dir.clone())?;
 
+    let file_bytes = &std::fs::read(&filename)?;
     let font = ab_glyph::FontRef::try_from_slice(file_bytes).expect("Error constructing FontRef");
     println!("{} glyphs in this font.", font.glyph_count());
 
     /*
     What should we use for position and width for each glyph?
+    We have `min` and `max`, which correspond to something like this:
 
     min.x, min.y
 
                     max.x, max.y
 
-    Output starts with (0, 0) rather than (min.x, min.y), so we probably want to shift each point.
+    Output starts with (0, 0) rather than (min.x, min.y), so we want to translate each point by `shift`.
     We need the width and height to be large enough that all of these hold:
-            0 <= position.x + min.x <= position.x + max.x < w
-            0 <= position.y + min.y <= position.y + max.y < h
+            0 <= shift.x + min.x <= shift.x + max.x < w
+            0 <= shift.y + min.y <= shift.y + max.y < h
     The former means that:
-            position.x >= -min.x, over all glyphs. The smallest such value, namely max(-min.x), is position.x.
+            shift.x >= -min.x, over all glyphs. The smallest such value, namely max(-min.x), is shift.x.
     The latter means that:
-            w > position.x + max.x for this particular glyph.
+            w > shift.x + max.x for this particular glyph.
      */
-    // First pass: find good position and width and height.
-    let mut x_min = 1000;
-    let mut x_max = -1000;
-    let mut y_min = 1000;
-    let mut y_max = -1000;
+    // First pass: find good `shift` and width and height.
+    let mut x_min = i32::MAX; // empty min = infinity, etc.
+    let mut x_max = i32::MIN;
+    let mut y_min = i32::MAX;
+    let mut y_max = i32::MIN;
     for g in 0..font.glyph_count() {
         let glyph =
             ab_glyph::GlyphId(g as u16).with_scale_and_position(size, ab_glyph::point(0.0, 0.0));
@@ -49,19 +44,23 @@ fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
             y_max = std::cmp::max(y_max, q.px_bounds().max.y as i32);
         }
     }
+    assert_ne!(x_min, i32::MAX);
+    assert_ne!(x_max, i32::MIN);
+    assert_ne!(y_min, i32::MAX);
+    assert_ne!(y_max, i32::MIN);
 
-    // Second pass: Draw it.
-    let position = ab_glyph::point(-x_min as f32, -y_min as f32);
+    // Second pass: Draw each glyph.
+    let shift = ab_glyph::point(-x_min as f32, -y_min as f32);
     // A common height because the images will be laid out side-by-side and we want their baselines to align.
-    let height = position.y as i32 + y_max + 1;
+    let height = shift.y as i32 + y_max + 1;
     for g in 0..font.glyph_count() {
         let glyph_id: u16 = g as u16;
-        let glyph = ab_glyph::GlyphId(glyph_id).with_scale_and_position(size, position);
+        let glyph = ab_glyph::GlyphId(glyph_id).with_scale_and_position(size, shift);
         let colour = (0, 0, 0);
         // We can generate images only for glyphs for which we have outlines.
         if let Some(q) = font.outline_glyph(glyph) {
             let mut image = DynamicImage::new_rgba8(
-                (position.x + q.px_bounds().max.x + 1.0) as u32,
+                (shift.x + q.px_bounds().max.x + 1.0) as u32,
                 height as u32,
             )
             .to_rgba8();
@@ -75,21 +74,27 @@ fn generate_ab_glyph(filename: std::path::PathBuf, size: f32) {
                     Rgba([colour.0, colour.1, colour.2, (c * 255.0) as u8]),
                 )
             });
-            let filename = format!("font-{}-glyph-{:04X}.png", font_id, glyph_id);
-            image.save(&filename).unwrap();
-            println!("Generated: {}", filename);
+            let output_filename = output_dir.join(format!("glyph-{:04X}.png", glyph_id));
+            image
+                .save(&output_filename)
+                .with_context(|| format!("Failed to write to {:?}", output_filename))?;
+
+            println!("Generated: {:#?}", output_filename);
         } else {
             // println!("No bounding box for GlyphId {:04X}", gu);
         }
     }
+    Ok(())
 }
 
-fn main() {
-    #[derive(Clap, Debug)]
-    struct Opt {
-        #[clap(parse(from_os_str))]
-        font_file: std::path::PathBuf,
-    }
-    let opt = Opt::parse();
-    generate_ab_glyph(opt.font_file, 30.0);
+#[derive(Clap, Debug)]
+struct Opts {
+    font_file: std::path::PathBuf,
+    output_dir: std::path::PathBuf,
+}
+
+fn main() -> Result<()> {
+    let opts = Opts::parse();
+    dump_glyphs(opts, 30.0)?;
+    Ok(())
 }
