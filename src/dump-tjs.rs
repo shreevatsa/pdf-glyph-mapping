@@ -3,7 +3,7 @@
 //! 1.  For each font, its ToUnicode mapping (if present), with the font's /BaseFont name.
 //! 2.  For each font, the operands of each text-showing (`Tj` etc) operation that uses that font.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Clap;
 use itertools::Itertools;
 use lopdf::ObjectId;
@@ -11,9 +11,14 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
+use std::process::exit;
 
 fn filename_for_font(font_id: ObjectId) -> String {
     format!("Tjs-{:04}-{}", font_id.0, font_id.1)
+}
+
+fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
+    format!("font-{}-{}-{}", font_id.0, font_id.1, base_font_name)
 }
 
 struct TjFiles {
@@ -186,7 +191,7 @@ fn actual_text_for(
     glyphs: &[u16],
     current_font: ObjectId,
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-) -> String {
+) -> Result<String> {
     // println!("Looking up font {:?}", current_font);
 
     fn get_font_mapping(font_id: ObjectId) -> HashMap<u16, String> {
@@ -229,7 +234,7 @@ fn actual_text_for(
     }
     let current_map = font_glyph_mappings.get(&current_font).unwrap();
     // TODO: Replace by something more sophisticated. :-)
-    glyphs
+    Ok(glyphs
         .iter()
         .map(|n| {
             match current_map.get(n) {
@@ -243,7 +248,7 @@ fn actual_text_for(
             //     format!(" ")
             // }
         })
-        .join("")
+        .join(""))
 }
 
 fn process_text_operation(
@@ -323,7 +328,7 @@ fn process_text_operation(
 
     // println!("Surrounding #{}#", mytext);
     let dict = lopdf::dictionary!("ActualText" =>
-        lopdf::Object::String(encode_for_pdf_silly_actualtext(&mytext),
+        lopdf::Object::String(encode_for_pdf_silly_actualtext(&mytext.unwrap()),
                               lopdf::StringFormat::Hexadecimal));
     // println!("…this became: {:?}", dict);
     content.operations.insert(
@@ -343,7 +348,9 @@ fn print_text_operators_doc(
     document: &mut lopdf::Document,
     filename: std::path::PathBuf,
     files: &mut TjFiles,
-    _output_opts: OutputOpts,
+    phase1: bool,
+    maps_dir: std::path::PathBuf,
+    output_pdf_file: Option<std::path::PathBuf>,
 ) {
     let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
     let pages = document.get_pages();
@@ -407,26 +414,30 @@ fn from_two_bytes(bytes: &[u8]) -> u16 {
     (bytes[0] as u16) * 256 + (bytes[1] as u16)
 }
 
-fn dump_tounicode_mappings(document: &lopdf::Document) {
+/// For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
+fn dump_tounicode_mappings(document: &lopdf::Document, maps_dir: std::path::PathBuf) -> Result<()> {
     for (object_id, object) in &document.objects {
         if let Ok(dict) = object.as_dict() {
-            if let Ok(s) = dict.get_deref(b"ToUnicode", &document) {
+            if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
                 let (base_font_name, font_id) = real_font_id(*object_id, &document);
-                // Our PDF assigns the same mapping multiple times, for some reason.
-                let mut mapped: HashMap<u16, HashSet<u16>> = HashMap::new();
-                let ss = s.as_stream().unwrap();
-                // TODO: The lopdf library seems to have some difficulty parsing actual CMap files (with comments etc) as the stream.
-                if let Ok(content) = ss.decode_content() {
+                // map from glyph id (as 4-digit hex string) to set of codepoints.
+                // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
+                let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
+                let stream = stream_object.as_stream()?;
+                // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
+                if let Ok(content) = stream.decode_content() {
                     for op in content.operations {
                         let operator = op.operator;
                         if operator == "endbfchar" {
                             for src_and_dst in op.operands.chunks(2) {
                                 assert_eq!(src_and_dst.len(), 2);
-                                let src = from_two_bytes(src_and_dst[0].as_str().unwrap());
-                                let dst = from_two_bytes(src_and_dst[1].as_str().unwrap());
+                                let src = from_two_bytes(src_and_dst[0].as_str()?);
+                                let dst = from_two_bytes(src_and_dst[1].as_str()?);
                                 if dst != 0 {
-                                    // println!("{:04X} -> {:04X}", src, dst);
-                                    mapped.entry(src).or_default().insert(dst);
+                                    mapped
+                                        .entry(format!("{:04X}", src))
+                                        .or_default()
+                                        .insert(dst);
                                 }
                             }
                         } else if operator == "endbfrange" {
@@ -438,8 +449,10 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                                 for src in begin..=end {
                                     let dst = src - begin + offset;
                                     if dst != 0 {
-                                        // println!("{:04X} -> {:04X}", src, dst);
-                                        mapped.entry(src).or_default().insert(dst);
+                                        mapped
+                                            .entry(format!("{:04X}", src))
+                                            .or_default()
+                                            .insert(dst);
                                     }
                                 }
                             }
@@ -447,32 +460,25 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
                     }
                 }
                 if mapped.len() > 0 {
-                    let filename = filename_for_font(font_id) + ".map";
+                    std::fs::create_dir_all(maps_dir.clone())?;
+                    let filename =
+                        maps_dir.join(basename_for_font(font_id, &base_font_name) + ".toml");
                     println!(
-                        "Creating file: {} for Font {:?} ({}) with {} mappings",
+                        "Creating file {:?} for Font {:?} ({}) with {} mappings",
                         filename,
                         font_id,
                         base_font_name,
                         mapped.len()
                     );
-                    let file = File::create(filename).unwrap();
-                    let mut writer = std::io::BufWriter::new(&file);
-                    writeln!(&mut writer, "{}", base_font_name).unwrap();
-                    for k in mapped.keys().sorted() {
-                        writeln!(&mut writer, "{:04X} -> {:04X?}", k, mapped[k]).unwrap();
-                    }
+                    let toml_string = toml::to_string(&mapped)?;
+                    std::fs::write(filename, toml_string)?;
                 } else {
                     println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
                 }
             }
         }
     }
-}
-
-#[derive(Clap)]
-struct OutputOpts {
-    maps_dir: Option<std::path::PathBuf>,
-    output_pdf_file: Option<std::path::PathBuf>,
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -482,8 +488,12 @@ fn main() -> Result<()> {
     struct Opts {
         // #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
         input_pdf_file: std::path::PathBuf,
-        #[clap(flatten)]
-        output_opts: OutputOpts,
+        /// Whether to dump (phase 1) or fix (phase 2).
+        #[clap(long)]
+        phase1: bool,
+        /// The directory for either the maps to dump (Phase 1), or maps to read (Phase 2).
+        maps_dir: std::path::PathBuf,
+        output_pdf_file: Option<std::path::PathBuf>,
     }
 
     let opts = Opts::parse();
@@ -499,12 +509,23 @@ fn main() -> Result<()> {
     let end = std::time::Instant::now();
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
-    dump_tounicode_mappings(&document);
-    let guard = pprof::ProfilerGuard::new(100)?;
-    print_text_operators_doc(&mut document, filename, &mut files, opts.output_opts);
-    if let Ok(report) = guard.report().build() {
-        let file = File::create("flamegraph.svg")?;
-        report.flamegraph(file)?;
-    };
+    if opts.phase1 {
+        dump_tounicode_mappings(&document, opts.maps_dir)?;
+        println!("Done dumping ToUnicode mappings (if any).");
+    } else {
+        let guard = pprof::ProfilerGuard::new(100)?;
+        print_text_operators_doc(
+            &mut document,
+            filename,
+            &mut files,
+            opts.phase1,
+            opts.maps_dir,
+            opts.output_pdf_file,
+        );
+        if let Ok(report) = guard.report().build() {
+            let file = File::create("flamegraph.svg")?;
+            report.flamegraph(file)?;
+        };
+    }
     Ok(())
 }

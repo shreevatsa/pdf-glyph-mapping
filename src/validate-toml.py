@@ -74,6 +74,9 @@ if __name__ == '__main__':
     out_mapping = {}
     for glyph_id_str, replacements in mapping.items():
         assert len(glyph_id_str) == 4, glyph_id_str
+        # Hack for being able to run on font-usage/font-*.toml
+        if isinstance(replacements, list):
+            replacements = {'replacement_codes': replacements}
         t = tuple(seq_from_t(replacements.get('replacement_text')))
         c = tuple(seq_from_c(replacements.get('replacement_codes')))
         d = tuple(seq_from_d(replacements.get('replacement_desc')))
