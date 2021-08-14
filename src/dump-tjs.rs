@@ -3,6 +3,7 @@
 //! 1.  For each font, its ToUnicode mapping (if present), with the font's /BaseFont name.
 //! 2.  For each font, the operands of each text-showing (`Tj` etc) operation that uses that font.
 
+use anyhow::Result;
 use clap::Clap;
 use itertools::Itertools;
 use lopdf::ObjectId;
@@ -342,6 +343,7 @@ fn print_text_operators_doc(
     document: &mut lopdf::Document,
     filename: std::path::PathBuf,
     files: &mut TjFiles,
+    _output_opts: OutputOpts,
 ) {
     let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
     let pages = document.get_pages();
@@ -467,15 +469,25 @@ fn dump_tounicode_mappings(document: &lopdf::Document) {
     }
 }
 
-fn main() {
-    #[derive(clap::Clap, Debug)]
-    #[clap(name = "dump-tjs")]
-    struct Opt {
-        #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
-        pdf_file: std::path::PathBuf,
+#[derive(Clap)]
+struct OutputOpts {
+    maps_dir: Option<std::path::PathBuf>,
+    output_pdf_file: Option<std::path::PathBuf>,
+}
+
+fn main() -> Result<()> {
+    /// Parse a PDF file either to dump text operations (Tj etc) in it,
+    /// or to "fix" all text by surrounding them with /ActualText.
+    #[derive(Clap)]
+    struct Opts {
+        // #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
+        input_pdf_file: std::path::PathBuf,
+        #[clap(flatten)]
+        output_opts: OutputOpts,
     }
-    let opt = Opt::parse();
-    let filename = opt.pdf_file;
+
+    let opts = Opts::parse();
+    let filename = opts.input_pdf_file;
 
     let mut files = TjFiles {
         file: HashMap::new(),
@@ -488,10 +500,11 @@ fn main() {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     dump_tounicode_mappings(&document);
-    let guard = pprof::ProfilerGuard::new(100).unwrap();
-    print_text_operators_doc(&mut document, filename, &mut files);
+    let guard = pprof::ProfilerGuard::new(100)?;
+    print_text_operators_doc(&mut document, filename, &mut files, opts.output_opts);
     if let Ok(report) = guard.report().build() {
-        let file = File::create("flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
+        let file = File::create("flamegraph.svg")?;
+        report.flamegraph(file)?;
     };
+    Ok(())
 }
