@@ -104,7 +104,7 @@ fn real_font_id(font_reference_id: ObjectId, document: &lopdf::Document) -> (Str
     )
 }
 
-/// Writes the text operators from `content` into corresponding `files`.
+/// For each text operator inside `object_id`, calls either `dump_text_operation` or `wrap_text_operation`.
 fn process_text_operators_object(
     document: &mut lopdf::Document,
     object_id: ObjectId,
@@ -372,7 +372,7 @@ fn wrap_text_operation(
     i + 2
 }
 
-fn print_text_operators_doc(
+fn process_text_operators_doc(
     document: &mut lopdf::Document,
     maps_dir: &std::path::PathBuf,
     files: &mut TjFiles,
@@ -568,7 +568,7 @@ fn main() -> Result<()> {
     }
 
     let guard = pprof::ProfilerGuard::new(100)?;
-    print_text_operators_doc(
+    process_text_operators_doc(
         &mut document,
         &opts.maps_dir,
         &mut files,

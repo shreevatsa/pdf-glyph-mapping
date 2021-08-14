@@ -35,9 +35,8 @@ def split_list(big_list: List[T], delimiter: T) -> List[List[T]]:
 
 
 class HtmlWriter:
-    def __init__(self, font_id_main, basename, num_glyphs, to_unicode) -> None:
+    def __init__(self, font_id_main, num_glyphs, to_unicode) -> None:
         self.font_id_main = font_id_main
-        self.basename = basename
         self.num_glyphs = num_glyphs
         self.to_unicode = to_unicode
         self.added = 0
@@ -79,7 +78,7 @@ body {
         return f'<dd>{"".join(self.img_for_glyph(main_glyph, glyph) for glyph in sample_run)}</dd>'
 
     def add(self, glyph_id_str, times_seen, sample_runs):
-        uni = to_unicode.get(glyph_id_str)
+        uni = self.to_unicode.get(glyph_id_str)
         if uni:
             print(f'{glyph_id_str} -> {uni}')
             assert isinstance(uni, list) and len(uni) == 1
@@ -148,20 +147,20 @@ if __name__ == '__main__':
     print(f'Found these Tj files: {matches}')
     assert len(matches) > 1
     for filename_tjs in matches:
-        print(f'For filename {filename_tjs}')
+        print(f'{filename_tjs=}')
         basename = pathlib.Path(filename_tjs).name
-        print(f'basename = {basename}')
+        print(f'{basename=}')
         font_id_main, font_id_generation = re.search(f'^font-([0-9]*)-([0-9]*)-(.*).Tjs$', basename).groups()[:2]
         font_id = f'font-{font_id_main}-{font_id_generation}'
-        print(f'font_id = {font_id}')
+        print(f'{font_id=}')
         assert font_id_generation == '0'
         font_name = pathlib.Path(basename).with_suffix('')
-        print(f'font_name = {font_name}')
+        print(f'{font_name=}')
         assert str(font_name).startswith(str(font_id)), (font_name, font_id)
         out_filename_html = pathlib.Path(out_dir).joinpath(basename).with_suffix('.html')
-        print(f'out_filename_html = {out_filename_html}')
+        print(f'{out_filename_html=}')
         in_filename_toml = pathlib.Path(filename_tjs).with_suffix(".toml")
-        print(f'in_filename_toml = {in_filename_toml}')
+        print(f'{in_filename_toml=}')
         to_unicode = toml.load(open(in_filename_toml))
         lines = open(filename_tjs).readlines()
         samples_max = 20
@@ -193,7 +192,7 @@ if __name__ == '__main__':
                         if m < samples_max and parts not in r:
                             r[m] = parts
 
-        h = HtmlWriter(font_id_main, basename, len(seen), to_unicode)
+        h = HtmlWriter(font_id_main, len(seen), to_unicode)
         for glyph_id_str in sorted(seen, key=lambda k: (seen[k], k), reverse=True):
             h.add(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
         pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)

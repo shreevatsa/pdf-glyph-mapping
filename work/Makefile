@@ -54,11 +54,11 @@ maps/look/: font-usage/ glyphs/ helper_fonts/
 
 # Manual intervention: use the .html file to edit maps/look/font-N.toml into maps/manual/font-N.toml
 maps/manual/: maps/look/
-	echo "Manually edit maps/look/font-*.toml into corresponding maps/manual/font-*.toml using the HTML files."; false
+	@echo "Manually edit maps/look/font-*.toml into corresponding maps/manual/font-*.toml using the HTML files."; false
 
 # maps/manual/font-N.toml ---[validate-toml.py]---> maps/valid/font-N.toml
 maps/valid/: maps/manual/ maps/look/
-	python3 src/validate-toml.py maps/manual/ maps/valid/
+	python3 src/validate-maps.py maps/manual/ maps/valid/
 
 # ORIG.pdf and maps/valid/font-N.toml ---[dump-tjs]---> ORIG.fixed.pdf
 $(ORIG).fixed.pdf: ${ORIG_PDF} maps/valid/
