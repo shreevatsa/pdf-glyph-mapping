@@ -48,7 +48,7 @@ glyphs/: fonts/
 
 # font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}
 maps/look/: font-usage/ glyphs/ helper_fonts/
-	python3 ../src/sample-runs.py font-usage/ glyphs/ helper_fonts/
+	python3 ../src/sample-runs.py font-usage/ glyphs/ helper_fonts/ maps/look/
 	# Replace `open` with `xdg-open` on Linux, maybe?
 	for f in maps/look/*.html; do open $$f; done
 
@@ -62,4 +62,4 @@ maps/valid/: maps/manual/ maps/look/
 
 # ORIG.pdf and maps/valid/font-N.toml ---[dump-tjs]---> ORIG.fixed.pdf
 $(ORIG).fixed.pdf: ${ORIG_PDF} maps/valid/
-	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf
+	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf --phase phase2

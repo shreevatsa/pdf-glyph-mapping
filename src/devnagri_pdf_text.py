@@ -43,7 +43,7 @@ import inspect
 
 def dprint(*args, **kwargs):
     prefix = '    ' * (len(inspect.stack(0)) - 1)
-    if False:
+    if True:
         print(prefix, *args, **kwargs)
 
 
@@ -122,84 +122,52 @@ def unicode_codepoints_for_glyph_id(ttx: str):
     def is_integer_sequence(s):
         return all(isinstance(e, int) for e in s)
 
-    def is_done(u):
-        return all(is_integer_sequence(s) for s in equivalents[u])
+    # `equivalents`:
+    #                 (glyph name) ---> (sequence of codepoints)
+    #                         |-------> (sequences of names)      (via ligature substitutions)
+    #                         |-------> (equivalent glyph names)  (non-ligature substitutions)
+    # At an intermediate step we may have: equivalents[u] = set(IntegerSequence1, NameSequence2, ...).
+    # Eventually we want something like: equivalents[u] = set(IntegerSequence1, IntegerSequence2, ...).
 
-    def first_refresh(s):
-        '''Replace the first "done" name in sequence s with its equivalent. Use `refresh` to replace all names.'''
-        # Now, suppose s is (Integer, Name, Integer, Integer, Name).
-        # Find the first Name `v` in s, and replace `v` by each of its equivalent integer sequences.
-        for i in range(len(s)):
-            v = s[i]
-            if isinstance(v, int):
-                continue
-            assert isinstance(v, str)
-            if not is_done(v):
-                continue
-            for equivalent in equivalents[v]:
-                ret = s[:i] + equivalent + s[i+1:]
-                dprint(f'While refreshing sequence #{s}#, expanded name #{v}#->#{equivalents[v]}#, yielding sequence #{ret}')
-                yield ret
-            return
-        yield s
-        return
-
-    def refresh(s):
-        '''Replace each "done" name in s with its equivalent.'''
-        dprint(f'Trying to refresh sequence #{s}#:')
-        to_refresh = deque()
-        to_refresh.append(s)
-        while to_refresh:
-            s = to_refresh.popleft()
-            dprint(f'...so: trying to refresh sequence #{s}#:')
-            refreshed = list(first_refresh(s))
-            if refreshed == [s]:
-                yield s
-            else:
-                to_refresh.extend(refreshed)
-
-    def full_refresh(ss):
-        """Replace a set of sequences by new set of sequences."""
-        dprint(f'Refreshing the set #{ss}#.')
-        assert isinstance(ss, set)
+    def sequences_for(glyph_name):
         ret = set()
-        for s in ss:
-            if is_integer_sequence(s):
-                ret.add(s)
-                continue
-            dprint(f'In set #{ss}, refreshing sequence #{s}#.')
-            refreshes = list(refresh(s))
-            dprint(f'In set #{ss}#, refreshing sequence #{s}# gave #{refreshes}# of size #{len(refreshes)}#.')
-            for r in refreshes:
-                ret.add(r)
-        dprint(f'Having refreshed the set #{ss}#, returning set #{ret}#.')
+        for seq in equivalents[glyph_name]:
+            for e in seq:
+                if isinstance(e, int):
+                    continue
+                else:
+                    assert isinstance(e, str)
+                equivalents[e] = list(sequences_for(e))
+                assert all(is_integer_sequence(s) for s in equivalents[e]), (e, equivalents[e])
+            # Now what? How do we flatten `seq`? By induction, assume at most one level of nesting:
+            # (Int, Int, set([Int, Int, Int], [Int, Int]), Int, ...)
+            flat_seq = set()
+            n = len(seq)
+
+            def recurse(i, cur):
+                if i == n:
+                    flat_seq.add(cur)
+                    return
+                if isinstance(seq[i], int):
+                    cur.append(seq[i])
+                    recurse(i + 1, cur)
+                    cur.pop()
+                    return
+                # So now it's a set of sequences
+                assert isinstance(seq[i], set)
+                for e in seq[i]:
+                    assert is_integer_sequence(e)
+                for e in seq[i]:
+                    save = len(cur)
+                    cur.extend(e)
+                    recurse(i + 1, cur)
+                    cur = cur[:save]
+            recurse(0)
+            ret.union(flat_seq)
+
+        dprint(f'Set sequences_for({glyph_name}) to {ret}')
+        equivalents[glyph_name] = ret
         return ret
-
-    not_done.extend(u for u in equivalents if u not in not_done)
-    done = set()
-    while not_done:
-        u = not_done.popleft()
-        if is_done(u):
-            done.add(u)
-            continue
-        dprint(f'Checking {u} -> set {equivalents[u]}...')
-        before = equivalents[u]
-        after = full_refresh(before)
-        if before != after:
-            dprint(f'Changed: #{before} to #{after}#.')
-            equivalents[u] = after
-        if is_done(u):
-            dprint(f'Done: {u} -> {equivalents[u]}')
-            done.add(u)
-        else:
-            dprint(f'Not yet done: {u} -> {equivalents[u]}')
-            not_done.append(u)
-
-    # Remove the "not done" ones.
-    for u in equivalents:
-        if not is_done(u):
-            print(f'Not done: {u} -> {equivalents[u]}')
-            del equivalents[u]
 
     return (glyph_name_for_glyph_id, equivalents)
 

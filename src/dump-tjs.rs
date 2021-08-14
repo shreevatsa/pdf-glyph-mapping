@@ -25,8 +25,8 @@ impl TjFiles {
         font_id: (String, ObjectId),
     ) -> &mut File {
         self.file.entry(font_id.1).or_insert_with(|| {
-            let filename =
-                std::path::Path::new(maps_dir).join(basename_for_font(font_id.1, &font_id.0));
+            let filename = std::path::Path::new(maps_dir)
+                .join(basename_for_font(font_id.1, &font_id.0) + ".Tjs");
             println!("Creating file: {:?}", filename);
             std::fs::create_dir_all(maps_dir.clone()).unwrap();
             File::create(filename).unwrap()
