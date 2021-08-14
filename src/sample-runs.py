@@ -14,6 +14,7 @@ from typing import List, TypeVar
 import toml
 
 import devnagri_pdf_text
+import validate_maps
 
 T = TypeVar('T')
 
@@ -77,14 +78,12 @@ body {
     def run(self, main_glyph, sample_run):
         return f'<dd>{"".join(self.img_for_glyph(main_glyph, glyph) for glyph in sample_run)}</dd>'
 
-    def add(self, glyph_id_str, times_seen, sample_runs):
+    def add_glyph_id(self, glyph_id_str, times_seen, sample_runs):
         uni = self.to_unicode.get(glyph_id_str)
         if uni:
             print(f'{glyph_id_str} -> {uni}')
-            assert isinstance(uni, list) and len(uni) == 1
+            assert isinstance(uni, list) and len(uni) == 1 and isinstance(uni[0], int), uni
             uni = uni[0]
-            assert isinstance(uni, int)
-            # c = chr(int(uni, 16))
             c = chr(uni)
             name = unicodedata.name(c)
             mapped_pdf = f'mapped in the PDF to 0x{uni} = {c} = {name}.'
@@ -97,7 +96,6 @@ body {
   <p>Glyph ID {glyph_id_str} (Seen {times_seen} times; glyph {self.added} of {self.num_glyphs})</p>
   <p>{mapped_pdf}</p>
         '''
-        helper_values = set()
         for font in helpers:
             glyph_name_for_glyph_id, equivalents = helpers[font]
             if glyph_name_for_glyph_id:
@@ -115,17 +113,22 @@ body {
                         as_str = ''.join(chr(c) for c in sequence)
                         as_names = ' followed by '.join(
                             f'{c:04X} (={unicodedata.name(chr(c))})' for c in sequence)
+                        # Add the "helped" equivalent for this glyph id.
+                        if glyph_id_str not in self.to_unicode:
+                            self.to_unicode[glyph_id_str] = sequence
                         mapped_helper_sequences.append(f'{as_str} ({as_names})')
                 else:
-                    mapped_helper = f'(no name in helper for {glyph_id_str})'
+                    mapped_helper = f'(no name in helper font {font} for {glyph_id_str})'
                     mapped_helper_sequences = []
             else:
-                mapped_helper = '(no helper)'
+                mapped_helper = f'(no mapping for {font})'
                 mapped_helper_sequences = []
             self.html += f'''
   <p>{mapped_helper} {f'({len(mapped_helper_sequences)} sequences)' if len(mapped_helper_sequences) > 1 else ''}</p>
   {chr(10).join('<li>' + sequence + '</li>' for sequence in mapped_helper_sequences)}
             '''
+            if mapped_helper_sequences:
+                pass
         self.html += f'''
 </dt>
 {chr(10).join(self.run(glyph_id_str, sample_run) for sample_run in sample_runs)}
@@ -159,6 +162,7 @@ if __name__ == '__main__':
         assert str(font_name).startswith(str(font_id)), (font_name, font_id)
         out_filename_html = pathlib.Path(out_dir).joinpath(basename).with_suffix('.html')
         print(f'{out_filename_html=}')
+        out_filename_toml = out_filename_html.with_suffix('.toml')
         in_filename_toml = pathlib.Path(filename_tjs).with_suffix(".toml")
         print(f'{in_filename_toml=}')
         to_unicode = toml.load(open(in_filename_toml))
@@ -194,6 +198,8 @@ if __name__ == '__main__':
 
         h = HtmlWriter(font_id_main, len(seen), to_unicode)
         for glyph_id_str in sorted(seen, key=lambda k: (seen[k], k), reverse=True):
-            h.add(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
+            h.add_glyph_id(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
         pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
         open(out_filename_html, 'w').write(h.html + h.footer)
+        mapping = validate_maps.validate({key: {'replacement_codes': list(value)} for (key, value) in h.to_unicode.items()})
+        toml.dump(mapping, open(out_filename_toml, 'w'))

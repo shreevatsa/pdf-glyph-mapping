@@ -67,17 +67,13 @@ def d_from_seq(seq):
             yield f'{code:04X} {unicodedata.name(chr(code))}'
 
 
-# python3 src/validate-maps.py maps/manual/ maps/valid/
-if __name__ == '__main__':
-    toml_filename = sys.argv[1]
-    assert toml_filename.endswith('.toml'), toml_filename
-    mapping = toml.load(open(toml_filename))
+def validate(mapping):
     out_mapping = {}
     for glyph_id_str, replacements in mapping.items():
         assert len(glyph_id_str) == 4, glyph_id_str
-        # # Hack for being able to run on font-usage/font-*.toml
-        # if isinstance(replacements, list):
-        #     replacements = {'replacement_codes': replacements}
+        # Hack for being able to run on font-usage/font-*.toml
+        if isinstance(replacements, list):
+            replacements = {'replacement_codes': replacements}
         t = tuple(seq_from_t(replacements.get('replacement_text')))
         c = tuple(seq_from_c(replacements.get('replacement_codes')))
         d = tuple(seq_from_d(replacements.get('replacement_desc')))
@@ -93,5 +89,14 @@ if __name__ == '__main__':
     new_out_mapping = {}
     for glyph_id_str, replacements in sorted(out_mapping.items()):
         new_out_mapping[glyph_id_str] = replacements
+    return new_out_mapping
+
+
+# python3 src/validate-maps.py maps/manual/ maps/valid/
+if __name__ == '__main__':
+    toml_filename = sys.argv[1]
+    assert toml_filename.endswith('.toml'), toml_filename
+    mapping = toml.load(open(toml_filename))
+    new_out_mapping = validate(mapping)
     out_filename = toml_filename[:-5] + '.fixed.toml'
     toml.dump(new_out_mapping, open(out_filename, 'w'))

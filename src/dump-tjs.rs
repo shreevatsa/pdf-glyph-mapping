@@ -243,11 +243,13 @@ fn process_textops_in_object(
             current_font = real_font_id(font_id, document)?;
         } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
             let content: &mut lopdf::content::Content = &mut content;
-            let glyphs = glyphs_in_text_operation(content, i)?;
+            // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
+            // but for "simple" fonts glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
+            let glyph_ids = glyph_ids_in_text_operation(content, i)?;
             match phase {
                 // Phase 1: Write to file.
                 Phase::Phase1Dump => {
-                    dump_text_operation(&glyphs, &current_font, maps_dir, files)?;
+                    dump_text_operation(&glyph_ids, &current_font, maps_dir, files)?;
                 }
                 Phase::Phase2Fix => {
                     // Phase 2: Wrap the operator in /ActualText.
@@ -256,7 +258,7 @@ fn process_textops_in_object(
                         i,
                         current_font.clone(),
                         font_glyph_mappings,
-                        glyphs,
+                        glyph_ids,
                     )?
                 }
             };
@@ -306,7 +308,7 @@ fn process_textops_in_object(
     }
     return Ok(());
 
-    fn glyphs_in_text_operation(
+    fn glyph_ids_in_text_operation(
         content: &mut lopdf::content::Content,
         i: usize,
     ) -> Result<Vec<u16>> {
@@ -336,22 +338,22 @@ fn process_textops_in_object(
             unreachable!();
         };
 
-        let glyphs: Vec<u16> = text
+        let glyph_ids: Vec<u16> = text
             .chunks(2)
             .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
             .collect();
-        Ok(glyphs)
+        Ok(glyph_ids)
     }
 }
 
 fn dump_text_operation(
-    glyphs: &Vec<u16>,
+    glyph_ids: &Vec<u16>,
     current_font: &(String, ObjectId),
     maps_dir: &std::path::PathBuf,
     files: &mut TjFiles,
 ) -> Result<(), std::io::Error> {
     let file = files.get_file(maps_dir, current_font.clone());
-    let glyph_hexes: Vec<String> = glyphs.iter().map(|n| format!("{:04X} ", n)).collect();
+    let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
     glyph_hexes
         .iter()
         .for_each(|g| file.write_all(g.as_bytes()).unwrap());
@@ -368,9 +370,9 @@ fn wrap_text_operation(
     i: usize,
     current_font: (String, ObjectId),
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-    glyphs: Vec<u16>,
+    glyph_ids: Vec<u16>,
 ) -> Result<usize> {
-    let mytext = actual_text_for(&glyphs, current_font, font_glyph_mappings)?;
+    let mytext = actual_text_for(&glyph_ids, current_font, font_glyph_mappings)?;
     let mytext_encoded_for_actualtext = {
         /*
         In the PDF 1.7 spec, see
@@ -405,7 +407,7 @@ fn wrap_text_operation(
 
     /// The string that be encoded into /ActualText surrounding those glyphs.
     fn actual_text_for(
-        glyphs: &[u16],
+        glyph_ids: &[u16],
         current_font: (String, ObjectId),
         font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     ) -> Result<String> {
@@ -416,7 +418,7 @@ fn wrap_text_operation(
         }
         let current_map = font_glyph_mappings.get(&current_font.1).unwrap();
         // TODO: Replace with something that actually uses the external maps :-)
-        let actual_text_string = glyphs
+        let actual_text_string = glyph_ids
             .iter()
             .map(|n| {
                 match current_map.get(n) {
@@ -531,15 +533,22 @@ fn real_font_id(
     */
     let referenced_font = document.get_object(font_reference_id)?.as_dict()?;
     let base_font_name = referenced_font.get(b"BaseFont")?.as_name_str()?.to_string();
-    let descendant_fonts = referenced_font.get(b"DescendantFonts")?.as_array()?;
-    assert_eq!(descendant_fonts.len(), 1);
-    let descendant_font = document
-        .get_object(descendant_fonts[0].as_reference()?)?
-        .as_dict()?;
-    Ok((
-        base_font_name,
-        descendant_font.get(b"FontDescriptor")?.as_reference()?,
-    ))
+    if let Ok(descendant_fonts_object) = referenced_font.get(b"DescendantFonts") {
+        let descendant_fonts = descendant_fonts_object.as_array()?;
+        assert_eq!(descendant_fonts.len(), 1);
+        let descendant_font = document
+            .get_object(descendant_fonts[0].as_reference()?)?
+            .as_dict()?;
+        Ok((
+            base_font_name,
+            descendant_font.get(b"FontDescriptor")?.as_reference()?,
+        ))
+    } else {
+        Ok((
+            base_font_name,
+            referenced_font.get(b"FontDescriptor")?.as_reference()?,
+        ))
+    }
 }
 
 fn from_two_bytes(bytes: &[u8]) -> u16 {

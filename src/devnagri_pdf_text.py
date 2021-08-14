@@ -43,7 +43,7 @@ import inspect
 
 def dprint(*args, **kwargs):
     prefix = '    ' * (len(inspect.stack(0)) - 1)
-    if True:
+    if False:
         print(prefix, *args, **kwargs)
 
 
@@ -131,45 +131,57 @@ def unicode_codepoints_for_glyph_id(ttx: str):
 
     def sequences_for(glyph_name):
         ret = set()
+        dprint(f'For name {glyph_name}, going over {equivalents[glyph_name]}')
         for seq in equivalents[glyph_name]:
             for e in seq:
                 if isinstance(e, int):
                     continue
                 else:
                     assert isinstance(e, str)
-                equivalents[e] = list(sequences_for(e))
+                equivalents[e] = set(sequences_for(e))
                 assert all(is_integer_sequence(s) for s in equivalents[e]), (e, equivalents[e])
+        dprint(f'Once again: for name {glyph_name}, going over {equivalents[glyph_name]}')
+        for seq in equivalents[glyph_name]:
             # Now what? How do we flatten `seq`? By induction, assume at most one level of nesting:
-            # (Int, Int, set([Int, Int, Int], [Int, Int]), Int, ...)
+            # (Int, Int, name -> set([Int, Int, Int], [Int, Int]), Int, ...)
+            dprint(f'Let us flatten {seq}')
             flat_seq = set()
             n = len(seq)
 
             def recurse(i, cur):
                 if i == n:
-                    flat_seq.add(cur)
+                    flat_seq.add(tuple(cur))
                     return
                 if isinstance(seq[i], int):
                     cur.append(seq[i])
                     recurse(i + 1, cur)
                     cur.pop()
                     return
-                # So now it's a set of sequences
-                assert isinstance(seq[i], set)
-                for e in seq[i]:
+                # So now it's a name pointing to a set of integer sequences
+                assert isinstance(seq[i], str), (i, seq[i])
+                assert isinstance(equivalents[seq[i]], set), (i, seq[i], equivalents[seq[i]])
+                for e in equivalents[seq[i]]:
                     assert is_integer_sequence(e)
-                for e in seq[i]:
+                for e in equivalents[seq[i]]:
                     save = len(cur)
                     cur.extend(e)
                     recurse(i + 1, cur)
                     cur = cur[:save]
-            recurse(0)
-            ret.union(flat_seq)
+            start = []
+            recurse(0, start)
+            dprint(f'Flattening {seq} gave {flat_seq}')
+            ret = ret.union(flat_seq)
 
         dprint(f'Set sequences_for({glyph_name}) to {ret}')
         equivalents[glyph_name] = ret
         return ret
 
-    return (glyph_name_for_glyph_id, equivalents)
+    new_equivalents = {}
+    keys = list(equivalents.keys())
+    for glyph_name in keys:
+        new_equivalents[glyph_name] = sequences_for(glyph_name)
+
+    return (glyph_name_for_glyph_id, new_equivalents)
 
 
 def normalize(r):
