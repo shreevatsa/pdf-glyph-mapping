@@ -1,7 +1,7 @@
 set -euxo pipefail
 
-# ORIG=../page-200/out-mbh-mutool.pdf
 ORIG=../gp-mbh/unabridged.pdf
+# ORIG=../page-200/out-mbh-mutool.pdf
 HELPER=helper_fonts/NotoSansDevanagari-Regular.ttx
 
 tmpdir=tmp-$(date +%s)

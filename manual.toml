@@ -17,21 +17,69 @@
 # 00CA = ["न", "094D DEVANAGARI SIGN VIRAMA"]
 # 00CA = ["न", "094D DEVANAGARI SIGN VIRAMA"]
 # etc.
-
+#
 # E.g. वर्णॊं is typeset by using three glyphs, of which the first two correspond to
-# 0935 DEVANAGARI LETTER VA and 0923 DEVANAGARI LETTER NNA respectively.
+# 0039 = ["0935 DEVANAGARI LETTER VA"]
+# and
+# 0027 = ["0923 DEVANAGARI LETTER NNA"]
+# respectively.
 # The third glyph could be indicated as:
-# xxxx = ["0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094A DEVANAGARI VOWEL SIGN SHORT O", "0902 DEVANAGARI SIGN ANUSVARA"]
+# 01CF = ["0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094A DEVANAGARI VOWEL SIGN SHORT O", "0902 DEVANAGARI SIGN ANUSVARA"]
+#
+# Edit: On further thought:
+# Assuming it's all machine-generated, how about requiring *all* of them (and they have to agree)?
+# 00CA -> {
+#     replacement_text: "न्",
+#     replacement_codes: [0x0928, 0x094D],   # Same as [2344, 2381]
+#     replacement_desc: ["0928 DEVANAGARI LETTER NA", "094D DEVANAGARI SIGN VIRAMA"],
+# }
+#
+# And, for वर्णॊं (let's reserve -1 for <CCprec>, and +1 (who uses U+0001 "start of heading" anyway?) for <CCsucc>):
+# 01CF -> {
+#     replacement_text: "र्<CCprec>ॊं",
+#     replacement_codes: [0x0930, 0x094D, -1, 0x094A, 0x0902],
+#     replacement_desc: ["0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094A DEVANAGARI VOWEL SIGN SHORT O", "0902 DEVANAGARI SIGN ANUSVARA"],
+# }
 
 # TODO: Alternative for me to consider: Just notate it without the "<CCprec>", and use regex replace to move the RA+VIRAMA?
-00CA = "न्"
-0231 = ["<succ>", "093F DEVANAGARI VOWEL SIGN I"]
-00D7 = "स्"
-0114 = "ब्र"
-0212 = "ह्म"
-0261 = ["0940 DEVANAGARI VOWEL SIGN II"]
-01B9 = ["0948 DEVANAGARI VOWEL SIGN AI", "0902 DEVANAGARI SIGN ANUSVARA"]
-00B5 = ["0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>"]
-019E = "रू"
-0194 = "हू"
-019D = "रु"
+[00CA]
+replacement_text = "न्"
+replacement_codes = [0x0928, 0x094D]
+replacement_desc = ["0928 DEVANAGARI LETTER NA", "094D DEVANAGARI SIGN VIRAMA"]
+
+[0231]
+replacement_desc = ["<CCsucc>", "093F DEVANAGARI VOWEL SIGN I"]
+
+[00D7]
+replacement_text = "स्"
+
+[0114]
+replacement_text = "ब्र"
+
+[0212]
+replacement_text = "ह्म"
+
+[0261]
+replacement_desc = ["0940 DEVANAGARI VOWEL SIGN II"]
+
+[01B9]
+replacement_desc = [
+        "0948 DEVANAGARI VOWEL SIGN AI",
+        "0902 DEVANAGARI SIGN ANUSVARA",
+]
+
+[00B5]
+replacement_desc = [
+        "0930 DEVANAGARI LETTER RA",
+        "094D DEVANAGARI SIGN VIRAMA",
+        "<CCprec>",
+]
+
+[019E]
+replacement_text = "रू"
+
+[0194]
+replacement_text = "हू"
+
+[019D]
+replacement_text = "रु"

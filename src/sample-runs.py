@@ -4,7 +4,7 @@
 import random
 import re
 import sys
-from typing import Any, List, TypeVar
+from typing import List, TypeVar
 import unicodedata
 from collections import defaultdict
 
@@ -42,16 +42,19 @@ class HtmlWriter:
 <!doctype html>
 <html>
 <style>
+body {
+    background-color: #999999;
+}
 * {
     box-sizing: border-box;
 }
 .glyph-main {
-    background-color:white;
-    border:1px dotted red;
+    background-color: white;
+    border:1px solid red;
 }
 .glyph-other {
-    background-color: #666666;
-    border: 1px dotted #666666;
+    background-color: #888888;
+    border: 1px dashed #111111;
 }
 </style>
 <body>
