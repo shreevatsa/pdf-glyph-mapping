@@ -3,7 +3,7 @@
 //! 1.  For each font, its ToUnicode mapping (if present), with the font's /BaseFont name.
 //! 2.  For each font, the operands of each text-showing (`Tj` etc) operation that uses that font.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Clap;
 use itertools::Itertools;
 use lopdf::ObjectId;
@@ -11,24 +11,24 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
-use std::process::exit;
-
-fn filename_for_font(font_id: ObjectId) -> String {
-    format!("Tjs-{:04}-{}", font_id.0, font_id.1)
-}
 
 fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
     format!("font-{}-{}-{}", font_id.0, font_id.1, base_font_name)
 }
-
 struct TjFiles {
     file: HashMap<lopdf::ObjectId, File>,
 }
 impl TjFiles {
-    fn get_file(&mut self, font_id: lopdf::ObjectId) -> &mut File {
-        self.file.entry(font_id).or_insert_with(|| {
-            let filename = filename_for_font(font_id);
-            println!("Creating file: {}", filename);
+    fn get_file(
+        &mut self,
+        maps_dir: &std::path::PathBuf,
+        font_id: (String, ObjectId),
+    ) -> &mut File {
+        self.file.entry(font_id.1).or_insert_with(|| {
+            let filename =
+                std::path::Path::new(maps_dir).join(basename_for_font(font_id.1, &font_id.0));
+            println!("Creating file: {:?}", filename);
+            std::fs::create_dir_all(maps_dir.clone()).unwrap();
             File::create(filename).unwrap()
         })
     }
@@ -110,8 +110,10 @@ fn process_text_operators_object(
     object_id: ObjectId,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
+    maps_dir: &std::path::PathBuf,
     files: &mut TjFiles,
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+    phase: &Phase,
 ) {
     let mut content: lopdf::content::Content = {
         let mut content_u8 = Vec::new();
@@ -127,7 +129,7 @@ fn process_text_operators_object(
         lopdf::content::Content::decode(&content_u8).unwrap()
     };
     // println!("Finding text operators in: {:?}", content);
-    let mut current_font: ObjectId = (0, 0);
+    let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
@@ -140,9 +142,26 @@ fn process_text_operators_object(
                 .as_reference()
                 .unwrap();
             // println!("Switching to font {}, which means {:?}", font_name, font_id);
-            current_font = real_font_id(font_id, document).1;
+            current_font = real_font_id(font_id, document);
         } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
-            i = process_text_operation(&mut content, i, current_font, files, font_glyph_mappings);
+            let content: &mut lopdf::content::Content = &mut content;
+            let glyphs = glyphs_in_text_operation(content, i);
+            match phase {
+                // Phase 1: Write to file.
+                Phase::Phase1Dump => {
+                    dump_text_operation(&glyphs, &current_font, maps_dir, files);
+                }
+                Phase::Phase2Fix => {
+                    // Phase 2: Wrap the operator in /ActualText.
+                    i = wrap_text_operation(
+                        content,
+                        i,
+                        current_font.clone(),
+                        font_glyph_mappings,
+                        glyphs,
+                    )
+                }
+            };
             let obj = document.get_object_mut(object_id).unwrap();
             let stream = obj.as_stream_mut().unwrap();
             stream.set_content(content.encode().unwrap());
@@ -174,8 +193,10 @@ fn process_text_operators_object(
                 object_id,
                 &fonts,
                 xobjects_dict,
+                maps_dir,
                 files,
                 font_glyph_mappings,
+                phase,
             );
         } else {
             // println!(
@@ -189,15 +210,16 @@ fn process_text_operators_object(
 
 fn actual_text_for(
     glyphs: &[u16],
-    current_font: ObjectId,
+    current_font: (String, ObjectId),
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
 ) -> Result<String> {
     // println!("Looking up font {:?}", current_font);
 
-    fn get_font_mapping(font_id: ObjectId) -> HashMap<u16, String> {
+    fn get_font_mapping(font_id: ObjectId, base_font_name: &str) -> HashMap<u16, String> {
         let mut ret = HashMap::<u16, std::string::String>::new();
-        let filename1 = filename_for_font(font_id) + ".map";
-        let s = std::fs::read_to_string(filename1).unwrap();
+        let filename = basename_for_font(font_id, base_font_name) + ".toml";
+        println!("Trying to read from filename {}", filename);
+        let s = std::fs::read_to_string(filename).unwrap();
         for (i, line) in s.lines().enumerate() {
             if i > 0 {
                 let (glyph_id, meaning) = match regex::Regex::new(
@@ -222,17 +244,17 @@ fn actual_text_for(
                 );
             }
         }
-        let filename2 = "manual.toml";
-        let toml_string = std::fs::read_to_string(filename2).unwrap();
-        let config: toml::Value = toml::from_str(&toml_string).unwrap();
-        println!("{:#?}", config);
+        // let filename2 = "manual.toml";
+        // let toml_string = std::fs::read_to_string(filename2).unwrap();
+        // let config: toml::Value = toml::from_str(&toml_string).unwrap();
+        // println!("{:#?}", config);
         ret
     }
-    if !font_glyph_mappings.contains_key(&current_font) {
-        let tmp = get_font_mapping(current_font);
-        font_glyph_mappings.insert(current_font, tmp);
+    if !font_glyph_mappings.contains_key(&current_font.1) {
+        let tmp = get_font_mapping(current_font.1, &current_font.0);
+        font_glyph_mappings.insert(current_font.1, tmp);
     }
-    let current_map = font_glyph_mappings.get(&current_font).unwrap();
+    let current_map = font_glyph_mappings.get(&current_font.1).unwrap();
     // TODO: Replace by something more sophisticated. :-)
     Ok(glyphs
         .iter()
@@ -251,13 +273,7 @@ fn actual_text_for(
         .join(""))
 }
 
-fn process_text_operation(
-    content: &mut lopdf::content::Content,
-    i: usize,
-    current_font: ObjectId,
-    files: &mut TjFiles,
-    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-) -> usize {
+fn glyphs_in_text_operation(content: &mut lopdf::content::Content, i: usize) -> Vec<u16> {
     let op = &content.operations[i];
     let operator = &op.operator;
     let mut bytes: Vec<u8> = Vec::new();
@@ -288,23 +304,35 @@ fn process_text_operation(
         .chunks(2)
         .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
         .collect();
+    glyphs
+}
 
-    // Option 1: Write to file.
-    let file = files.get_file(current_font);
+fn dump_text_operation(
+    glyphs: &Vec<u16>,
+    current_font: &(String, ObjectId),
+    maps_dir: &std::path::PathBuf,
+    files: &mut TjFiles,
+) {
+    let file = files.get_file(maps_dir, current_font.clone());
     let glyph_hexes: Vec<String> = glyphs.iter().map(|n| format!("{:04X} ", n)).collect();
     glyph_hexes
         .iter()
         .for_each(|g| file.write_all(g.as_bytes()).unwrap());
     file.write_all(b"\n").unwrap();
+}
 
-    // Option 2: Wrap the operator in /ActualText.
-    /*
-    Before: content[i] = op.
-    After:
-            content[i] = BDC [/Span <</ActualText (...)>>]
-            content[i + 1] = op
-            content[i + 2] = EMC []
-     */
+/// Before: content[i] = op.
+/// After:
+///         content[i] = BDC [/Span <</ActualText (...)>>]
+///         content[i + 1] = op
+///         content[i + 2] = EMC []
+fn wrap_text_operation(
+    content: &mut lopdf::content::Content,
+    i: usize,
+    current_font: (String, ObjectId),
+    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+    glyphs: Vec<u16>,
+) -> usize {
     let mytext = actual_text_for(&glyphs, current_font, font_glyph_mappings);
 
     fn encode_for_pdf_silly_actualtext(mytext: &str) -> Vec<u8> {
@@ -328,8 +356,8 @@ fn process_text_operation(
 
     // println!("Surrounding #{}#", mytext);
     let dict = lopdf::dictionary!("ActualText" =>
-        lopdf::Object::String(encode_for_pdf_silly_actualtext(&mytext.unwrap()),
-                              lopdf::StringFormat::Hexadecimal));
+    lopdf::Object::String(encode_for_pdf_silly_actualtext(&mytext.unwrap()),
+                          lopdf::StringFormat::Hexadecimal));
     // println!("…this became: {:?}", dict);
     content.operations.insert(
         i,
@@ -346,12 +374,11 @@ fn process_text_operation(
 
 fn print_text_operators_doc(
     document: &mut lopdf::Document,
-    filename: std::path::PathBuf,
+    maps_dir: &std::path::PathBuf,
     files: &mut TjFiles,
-    phase1: bool,
-    maps_dir: std::path::PathBuf,
+    phase: &Phase,
     output_pdf_file: Option<std::path::PathBuf>,
-) {
+) -> Result<()> {
     let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
     let pages = document.get_pages();
     println!("{} pages in this document", pages.len());
@@ -364,7 +391,7 @@ fn print_text_operators_doc(
         let mut fonts = lopdf::Dictionary::new();
         if let Some(resource_dict) = maybe_dict {
             if let Ok(f) = resource_dict.get(b"Font") {
-                fonts.extend(f.as_dict().unwrap());
+                fonts.extend(f.as_dict()?);
             }
         }
         for object_id in &resource_objects {
@@ -399,14 +426,21 @@ fn print_text_operators_doc(
                 object_id,
                 &fonts,
                 &xobjects_dict,
+                maps_dir,
                 files,
                 &mut font_glyph_mappings,
+                phase,
             );
         }
     }
-    let new_filename = filename.with_extension("surrounded.pdf");
-    println!("Creating file: {:?}", new_filename);
-    document.save(new_filename).unwrap();
+    match output_pdf_file {
+        Some(new_filename) => {
+            println!("Creating file: {:?}", new_filename);
+            document.save(new_filename)?;
+            Ok(())
+        }
+        None => todo!(),
+    }
 }
 
 fn from_two_bytes(bytes: &[u8]) -> u16 {
@@ -481,6 +515,22 @@ fn dump_tounicode_mappings(document: &lopdf::Document, maps_dir: std::path::Path
     Ok(())
 }
 
+enum Phase {
+    Phase1Dump,
+    Phase2Fix,
+}
+
+impl std::str::FromStr for Phase {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s == "phase2" {
+            Ok(Phase::Phase2Fix)
+        } else {
+            Ok(Phase::Phase1Dump)
+        }
+    }
+}
+
 fn main() -> Result<()> {
     /// Parse a PDF file either to dump text operations (Tj etc) in it,
     /// or to "fix" all text by surrounding them with /ActualText.
@@ -490,7 +540,7 @@ fn main() -> Result<()> {
         input_pdf_file: std::path::PathBuf,
         /// Whether to dump (phase 1) or fix (phase 2).
         #[clap(long)]
-        phase1: bool,
+        phase: Phase,
         /// The directory for either the maps to dump (Phase 1), or maps to read (Phase 2).
         maps_dir: std::path::PathBuf,
         output_pdf_file: Option<std::path::PathBuf>,
@@ -509,23 +559,25 @@ fn main() -> Result<()> {
     let end = std::time::Instant::now();
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
-    if opts.phase1 {
-        dump_tounicode_mappings(&document, opts.maps_dir)?;
-        println!("Done dumping ToUnicode mappings (if any).");
-    } else {
-        let guard = pprof::ProfilerGuard::new(100)?;
-        print_text_operators_doc(
-            &mut document,
-            filename,
-            &mut files,
-            opts.phase1,
-            opts.maps_dir,
-            opts.output_pdf_file,
-        );
-        if let Ok(report) = guard.report().build() {
-            let file = File::create("flamegraph.svg")?;
-            report.flamegraph(file)?;
-        };
+    match opts.phase {
+        Phase::Phase1Dump => {
+            dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
+            println!("Done dumping ToUnicode mappings (if any).");
+        }
+        Phase::Phase2Fix => {}
     }
+
+    let guard = pprof::ProfilerGuard::new(100)?;
+    print_text_operators_doc(
+        &mut document,
+        &opts.maps_dir,
+        &mut files,
+        &opts.phase,
+        opts.output_pdf_file,
+    )?;
+    if let Ok(report) = guard.report().build() {
+        let file = File::create("flamegraph.svg")?;
+        report.flamegraph(file)?;
+    };
     Ok(())
 }

@@ -1,12 +1,17 @@
 """See Makefile (doit.sh) for how this is meant to be called.
 """
 
+import glob
+import os.path
+import pathlib
 import random
 import re
 import sys
-from typing import List, TypeVar
 import unicodedata
 from collections import defaultdict
+from typing import List, TypeVar
+
+import toml
 
 import devnagri_pdf_text
 
@@ -117,54 +122,45 @@ body {
 
 if __name__ == '__main__':
     random.seed(42)
-    filename_font = sys.argv[1]  # E.g. font-40532.ttf
-    filename_helper = sys.argv[2] if len(sys.argv) > 2 else None  # E.g. noto.ttx
-    font_id = re.search(f'font-([0-9]*).ttf', filename_font).group(1)
-    filename_tjs = f"Tjs-{font_id}-0"
+    (font_usage_dir, glyphs_dir, helper_dir) = sys.argv[1:]
+    matches = glob.glob(os.path.join(font_usage_dir, '*.Tjs'))
+    print(f'Found these Tj files: {matches}')
+    assert len(matches) > 1
+    for filename_tjs in matches:
+        font_id = re.search(f'font-(.*).Tjs$', filename_tjs).group(1)
+        filename_map = pathlib.path(filename_tjs).with_suffix(".toml")
+        to_unicode = toml.load(open(filename_map))
+        lines = open(filename_tjs).readlines()
+        samples_max = 20
+        reservoir = defaultdict(list)  # A few samples for each glyph.
+        seen = defaultdict(int)  # How many times each glyph was seen.
+        for (n, line) in enumerate(lines):
+            if n > 0 and n % 100000 == 0:
+                print(f'({n * 100.0 / len(lines):05.2f}%) Done {n:7} lines of {len(lines)}.')
+            # s = line.strip()
+            # assert len(s) % 4 == 0
+            # all_parts = [s[i:i+4] for i in range(0, len(s), 4)]
+            s = line.strip().split()
+            assert all(len(g) == 4 for g in s)
+            all_parts = s
+            actual_parts = split_list(all_parts, '0003')
+            for parts in actual_parts:
+                for glyph_id_str in parts:
+                    seen[glyph_id_str] += 1
+                    r = reservoir[glyph_id_str]
+                    # The second condition here makes it slightly different from the usual.
+                    if len(r) < samples_max:
+                        if parts not in r:
+                            r.append(parts)
+                    else:
+                        m = random.randrange(0, seen[glyph_id_str])
+                        # If seen[glyph] = N, then m is uniformly distributed over the N values [0..N).
+                        # So the probability that m < samples_max is samples_max / N,
+                        # which is precisely what we want.
+                        if m < samples_max and parts not in r:
+                            r[m] = parts
 
-    def read_mapping(filename):
-        to_unicode = {}
-        name = None
-        for line in open(filename).readlines():
-            if not name:
-                name = line.strip()
-                continue
-            groups = re.match('(.*) -> {(.*)}', line).groups()
-            to_unicode[groups[0]] = groups[1]
-        return name, to_unicode
-    fontname, to_unicode = read_mapping(filename_tjs + '.map')
-
-    lines = open(filename_tjs).readlines()
-    samples_max = 20
-    reservoir = defaultdict(list)  # A few samples for each glyph.
-    seen = defaultdict(int)  # How many times each glyph was seen.
-    for (n, line) in enumerate(lines):
-        if n > 0 and n % 100000 == 0:
-            print(f'({n * 100.0 / len(lines):05.2f}%) Done {n:7} lines of {len(lines)}.')
-        # s = line.strip()
-        # assert len(s) % 4 == 0
-        # all_parts = [s[i:i+4] for i in range(0, len(s), 4)]
-        s = line.strip().split()
-        assert all(len(g) == 4 for g in s)
-        all_parts = s
-        actual_parts = split_list(all_parts, '0003')
-        for parts in actual_parts:
-            for glyph_id_str in parts:
-                seen[glyph_id_str] += 1
-                r = reservoir[glyph_id_str]
-                # The second condition here makes it slightly different from the usual.
-                if len(r) < samples_max:
-                    if parts not in r:
-                        r.append(parts)
-                else:
-                    m = random.randrange(0, seen[glyph_id_str])
-                    # If seen[glyph] = N, then m is uniformly distributed over the N values [0..N).
-                    # So the probability that m < samples_max is samples_max / N,
-                    # which is precisely what we want.
-                    if m < samples_max and parts not in r:
-                        r[m] = parts
-
-    h = HtmlWriter(font_id, fontname, filename_helper, len(seen), to_unicode)
-    for glyph_id_str in sorted(seen, key=lambda k: (seen[k], k), reverse=True):
-        h.add(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
-    open(filename_font + '.html', 'w').write(h.html + h.footer)
+        h = HtmlWriter(font_id, filename_helper, len(seen), to_unicode)
+        for glyph_id_str in sorted(seen, key=lambda k: (seen[k], k), reverse=True):
+            h.add(glyph_id_str, seen[glyph_id_str], reservoir[glyph_id_str])
+        open(filename_font + '.html', 'w').write(h.html + h.footer)

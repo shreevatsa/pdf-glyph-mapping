@@ -36,9 +36,9 @@ $(ORIG_PDF):
 fonts/: ${ORIG_PDF}
 	sh mutool-extract.sh ${ORIG_PDF}
 
-# ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml} (but for now, Tjs-N and Tjs-N.map)
+# ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml} (but for now, Tjs-N)
 font-usage/: ${ORIG_PDF}
-	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase1
+	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase phase1
 
 # fonts/font-N.ttf  ---[dump-glyphs]--->  glyphs/font-N/glyph-M.png
 glyphs/: fonts/
@@ -47,8 +47,8 @@ glyphs/: fonts/
 	done
 
 # font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}
-maps/look/: font-usage/ helper_fonts/ glyphs/
-	python3 ../src/sample-runs.py
+maps/look/: font-usage/ glyphs/ helper_fonts/
+	python3 ../src/sample-runs.py font-usage/ glyphs/ helper_fonts/
 	# Replace `open` with `xdg-open` on Linux, maybe?
 	for f in maps/look/*.html; do open $$f; done
 
