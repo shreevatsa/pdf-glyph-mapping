@@ -1,0 +1,106 @@
+
+# This is the mapping from each glyph id to the sequence of Unicode codepoints that it represents.
+#
+# Explanation:
+#
+# A font contains "glyphs" (roughly: pictures/shapes, of letters/letter-parts/letter-combinations).
+# Consider an example from https://itextpdf.com/sites/default/files/2018-12/PP_Advanced_typography_in_PDF-compressed.pdf#page=36 —
+# In some font (Noto Sans Devanagari), the word वर्णों may be typeset using three glyphs:
+# 1. Glyph id  57 (0x0039): A glyph for the shape of the letter व
+# 2. Glyph id  39 (0x0027): A glyph for the shape of the letter ण
+# 3. Glyph id 452 (0x01C4): A glyph for the remaining shapes (indicating the half-ra, the vowel-sign o, and anusvara).
+#
+# In Unicode though, the word वर्णों is represented as a different sequence of codepoints (Unicode scalar values):
+#
+#         0935 DEVANAGARI LETTER VA
+#         0930 DEVANAGARI LETTER RA
+#         094D DEVANAGARI SIGN VIRAMA
+#         0923 DEVANAGARI LETTER NNA
+#         094B DEVANAGARI VOWEL SIGN O
+#         0902 DEVANAGARI SIGN ANUSVARA
+#
+# Roughly, the glyph sequence matches the *visual* order, while the Unicode sequence matches the *phonetic* order.
+#
+# The mapping from glyph id to Unicode is what this file encodes.
+#
+# For the above example, the meanings of the three glyphs above may be encoded in this file as:
+#
+#         [0039]
+#         replacement_text = "व"
+#         replacement_codes = [ 2357,]  # Same as [0x0935]
+#         replacement_desc = [ "0935 DEVANAGARI LETTER VA",]
+#
+#         [0027]
+#         replacement_text = "ण"
+#         replacement_codes = [ 2339,] # Same as [0x0923]
+#         replacement_desc = [ "0923 DEVANAGARI LETTER NNA",]
+#
+#         [01C4]
+#         replacement_text = "र्<CCprec>ों"
+#         replacement_codes = [ 2352, 2381, -1, 2379, 2306,] # Same as [0x0930, 0x094D, -1, 0x094B, 0x0902]
+#         replacement_desc = [ "0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094B DEVANAGARI VOWEL SIGN O", "0902 DEVANAGARI SIGN ANUSVARA",]
+#
+# where you could write just one of `replacement_text`, `replacement_codes`, `replacement_desc`, or even just:
+#
+#         0039 = [0x0935]
+#         0027 = [0x0923]
+#         01C4 = [0x0930, 0x094D, -1, 0x094B, 0x0902]
+#
+# In general, the convention of this toml file is that it is a table where:
+#
+# -   key is a string of 4 hex digits (like `0039` above), and
+# -   value is either
+#
+#     -   an integer sequence (like `[0x0930, 0x094D, -1, 0x094B, 0x0902]` above),
+#     -   a table that maps some subset of:
+#         -   "replacement_text" to a Unicode string,
+#         -   "replacement_codes" to a list of integers,
+#         -   "replacement_desc" to a list of strings,
+#
+#     with the special conventions that:
+#         -   (Usually following र् ) "<CCprec>" in replacement_text and replacement_desc, or -1 in replacement_codes, means that
+#             everything so far must go *before* the previous consonant cluster, and
+#         -   (Usually following  ि ) "<CCsucc>" in replacement_text and replacement_desc, or 1 in replacement_codes, means that
+#             everything so far must go *after* the next consonant cluster
+#
+#     where "consonant cluster" means ([क-ह]्)*[क-ह] i.e. a (possibly empty) sequence of (consonant + virama), followed by a consonant.
+#
+[0003]
+replacement_text = " "
+replacement_codes = [ 32,]
+replacement_desc = [ "0020 SPACE",]
+
+[0044]
+replacement_text = "a"
+replacement_codes = [ 97,]
+replacement_desc = [ "0061 LATIN SMALL LETTER A",]
+
+[0045]
+replacement_text = "b"
+replacement_codes = [ 98,]
+replacement_desc = [ "0062 LATIN SMALL LETTER B",]
+
+[0048]
+replacement_text = "e"
+replacement_codes = [ 101,]
+replacement_desc = [ "0065 LATIN SMALL LETTER E",]
+
+[004C]
+replacement_text = "i"
+replacement_codes = [ 105,]
+replacement_desc = [ "0069 LATIN SMALL LETTER I",]
+
+[004F]
+replacement_text = "l"
+replacement_codes = [ 108,]
+replacement_desc = [ "006C LATIN SMALL LETTER L",]
+
+[0050]
+replacement_text = "m"
+replacement_codes = [ 109,]
+replacement_desc = [ "006D LATIN SMALL LETTER M",]
+
+[005A]
+replacement_text = "w"
+replacement_codes = [ 119,]
+replacement_desc = [ "0077 LATIN SMALL LETTER W",]

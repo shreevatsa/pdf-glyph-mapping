@@ -1,0 +1,551 @@
+
+# This is the mapping from each glyph id to the sequence of Unicode codepoints that it represents.
+#
+# Explanation:
+#
+# A font contains "glyphs" (roughly: pictures/shapes, of letters/letter-parts/letter-combinations).
+# Consider an example from https://itextpdf.com/sites/default/files/2018-12/PP_Advanced_typography_in_PDF-compressed.pdf#page=36 —
+# In some font (Noto Sans Devanagari), the word वर्णों may be typeset using three glyphs:
+# 1. Glyph id  57 (0x0039): A glyph for the shape of the letter व
+# 2. Glyph id  39 (0x0027): A glyph for the shape of the letter ण
+# 3. Glyph id 452 (0x01C4): A glyph for the remaining shapes (indicating the half-ra, the vowel-sign o, and anusvara).
+#
+# In Unicode though, the word वर्णों is represented as a different sequence of codepoints (Unicode scalar values):
+#
+#         0935 DEVANAGARI LETTER VA
+#         0930 DEVANAGARI LETTER RA
+#         094D DEVANAGARI SIGN VIRAMA
+#         0923 DEVANAGARI LETTER NNA
+#         094B DEVANAGARI VOWEL SIGN O
+#         0902 DEVANAGARI SIGN ANUSVARA
+#
+# Roughly, the glyph sequence matches the *visual* order, while the Unicode sequence matches the *phonetic* order.
+#
+# The mapping from glyph id to Unicode is what this file encodes.
+#
+# For the above example, the meanings of the three glyphs above may be encoded in this file as:
+#
+#         [0039]
+#         replacement_text = "व"
+#         replacement_codes = [ 2357,]  # Same as [0x0935]
+#         replacement_desc = [ "0935 DEVANAGARI LETTER VA",]
+#
+#         [0027]
+#         replacement_text = "ण"
+#         replacement_codes = [ 2339,] # Same as [0x0923]
+#         replacement_desc = [ "0923 DEVANAGARI LETTER NNA",]
+#
+#         [01C4]
+#         replacement_text = "र्<CCprec>ों"
+#         replacement_codes = [ 2352, 2381, -1, 2379, 2306,] # Same as [0x0930, 0x094D, -1, 0x094B, 0x0902]
+#         replacement_desc = [ "0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094B DEVANAGARI VOWEL SIGN O", "0902 DEVANAGARI SIGN ANUSVARA",]
+#
+# where you could write just one of `replacement_text`, `replacement_codes`, `replacement_desc`, or even just:
+#
+#         0039 = [0x0935]
+#         0027 = [0x0923]
+#         01C4 = [0x0930, 0x094D, -1, 0x094B, 0x0902]
+#
+# In general, the convention of this toml file is that it is a table where:
+#
+# -   key is a string of 4 hex digits (like `0039` above), and
+# -   value is either
+#
+#     -   an integer sequence (like `[0x0930, 0x094D, -1, 0x094B, 0x0902]` above),
+#     -   a table that maps some subset of:
+#         -   "replacement_text" to a Unicode string,
+#         -   "replacement_codes" to a list of integers,
+#         -   "replacement_desc" to a list of strings,
+#
+#     with the special conventions that:
+#         -   (Usually following र् ) "<CCprec>" in replacement_text and replacement_desc, or -1 in replacement_codes, means that
+#             everything so far must go *before* the previous consonant cluster, and
+#         -   (Usually following  ि ) "<CCsucc>" in replacement_text and replacement_desc, or 1 in replacement_codes, means that
+#             everything so far must go *after* the next consonant cluster
+#
+#     where "consonant cluster" means ([क-ह]्)*[क-ह] i.e. a (possibly empty) sequence of (consonant + virama), followed by a consonant.
+#
+[0003]
+replacement_text = " "
+replacement_codes = [ 32,]
+replacement_desc = [ "0020 SPACE",]
+
+[0005]
+replacement_text = "ँ"
+replacement_codes = [ 2305,]
+replacement_desc = [ "0901 DEVANAGARI SIGN CANDRABINDU",]
+
+[0006]
+replacement_text = "ं"
+replacement_codes = [ 2306,]
+replacement_desc = [ "0902 DEVANAGARI SIGN ANUSVARA",]
+
+[0007]
+replacement_text = "ः"
+replacement_codes = [ 2307,]
+replacement_desc = [ "0903 DEVANAGARI SIGN VISARGA",]
+
+[0009]
+replacement_text = "अ"
+replacement_codes = [ 2309,]
+replacement_desc = [ "0905 DEVANAGARI LETTER A",]
+
+[000A]
+replacement_text = "आ"
+replacement_codes = [ 2310,]
+replacement_desc = [ "0906 DEVANAGARI LETTER AA",]
+
+[000B]
+replacement_text = "इ"
+replacement_codes = [ 2311,]
+replacement_desc = [ "0907 DEVANAGARI LETTER I",]
+
+[000C]
+replacement_text = "ई"
+replacement_codes = [ 2312,]
+replacement_desc = [ "0908 DEVANAGARI LETTER II",]
+
+[000D]
+replacement_text = "उ"
+replacement_codes = [ 2313,]
+replacement_desc = [ "0909 DEVANAGARI LETTER U",]
+
+[000E]
+replacement_text = "ऊ"
+replacement_codes = [ 2314,]
+replacement_desc = [ "090A DEVANAGARI LETTER UU",]
+
+[000F]
+replacement_text = "ऋ"
+replacement_codes = [ 2315,]
+replacement_desc = [ "090B DEVANAGARI LETTER VOCALIC R",]
+
+[0013]
+replacement_text = "ए"
+replacement_codes = [ 2319,]
+replacement_desc = [ "090F DEVANAGARI LETTER E",]
+
+[0014]
+replacement_text = "ऐ"
+replacement_codes = [ 2320,]
+replacement_desc = [ "0910 DEVANAGARI LETTER AI",]
+
+[0017]
+replacement_text = "ओ"
+replacement_codes = [ 2323,]
+replacement_desc = [ "0913 DEVANAGARI LETTER O",]
+
+[0018]
+replacement_text = "औ"
+replacement_codes = [ 2324,]
+replacement_desc = [ "0914 DEVANAGARI LETTER AU",]
+
+[0019]
+replacement_text = "क"
+replacement_codes = [ 2325,]
+replacement_desc = [ "0915 DEVANAGARI LETTER KA",]
+
+[001A]
+replacement_text = "ख"
+replacement_codes = [ 2326,]
+replacement_desc = [ "0916 DEVANAGARI LETTER KHA",]
+
+[001B]
+replacement_text = "ग"
+replacement_codes = [ 2327,]
+replacement_desc = [ "0917 DEVANAGARI LETTER GA",]
+
+[001C]
+replacement_text = "घ"
+replacement_codes = [ 2328,]
+replacement_desc = [ "0918 DEVANAGARI LETTER GHA",]
+
+[001D]
+replacement_text = "ङ"
+replacement_codes = [ 2329,]
+replacement_desc = [ "0919 DEVANAGARI LETTER NGA",]
+
+[001E]
+replacement_text = "च"
+replacement_codes = [ 2330,]
+replacement_desc = [ "091A DEVANAGARI LETTER CA",]
+
+[001F]
+replacement_text = "छ"
+replacement_codes = [ 2331,]
+replacement_desc = [ "091B DEVANAGARI LETTER CHA",]
+
+[0020]
+replacement_text = "ज"
+replacement_codes = [ 2332,]
+replacement_desc = [ "091C DEVANAGARI LETTER JA",]
+
+[0021]
+replacement_text = "झ"
+replacement_codes = [ 2333,]
+replacement_desc = [ "091D DEVANAGARI LETTER JHA",]
+
+[0023]
+replacement_text = "ट"
+replacement_codes = [ 2335,]
+replacement_desc = [ "091F DEVANAGARI LETTER TTA",]
+
+[0024]
+replacement_text = "ठ"
+replacement_codes = [ 2336,]
+replacement_desc = [ "0920 DEVANAGARI LETTER TTHA",]
+
+[0025]
+replacement_text = "ड"
+replacement_codes = [ 2337,]
+replacement_desc = [ "0921 DEVANAGARI LETTER DDA",]
+
+[0026]
+replacement_text = "ढ"
+replacement_codes = [ 2338,]
+replacement_desc = [ "0922 DEVANAGARI LETTER DDHA",]
+
+[0027]
+replacement_text = "ण"
+replacement_codes = [ 2339,]
+replacement_desc = [ "0923 DEVANAGARI LETTER NNA",]
+
+[0028]
+replacement_text = "त"
+replacement_codes = [ 2340,]
+replacement_desc = [ "0924 DEVANAGARI LETTER TA",]
+
+[0029]
+replacement_text = "थ"
+replacement_codes = [ 2341,]
+replacement_desc = [ "0925 DEVANAGARI LETTER THA",]
+
+[002A]
+replacement_text = "द"
+replacement_codes = [ 2342,]
+replacement_desc = [ "0926 DEVANAGARI LETTER DA",]
+
+[002B]
+replacement_text = "ध"
+replacement_codes = [ 2343,]
+replacement_desc = [ "0927 DEVANAGARI LETTER DHA",]
+
+[002C]
+replacement_text = "न"
+replacement_codes = [ 2344,]
+replacement_desc = [ "0928 DEVANAGARI LETTER NA",]
+
+[002E]
+replacement_text = "प"
+replacement_codes = [ 2346,]
+replacement_desc = [ "092A DEVANAGARI LETTER PA",]
+
+[002F]
+replacement_text = "फ"
+replacement_codes = [ 2347,]
+replacement_desc = [ "092B DEVANAGARI LETTER PHA",]
+
+[0030]
+replacement_text = "ब"
+replacement_codes = [ 2348,]
+replacement_desc = [ "092C DEVANAGARI LETTER BA",]
+
+[0031]
+replacement_text = "भ"
+replacement_codes = [ 2349,]
+replacement_desc = [ "092D DEVANAGARI LETTER BHA",]
+
+[0032]
+replacement_text = "म"
+replacement_codes = [ 2350,]
+replacement_desc = [ "092E DEVANAGARI LETTER MA",]
+
+[0033]
+replacement_text = "य"
+replacement_codes = [ 2351,]
+replacement_desc = [ "092F DEVANAGARI LETTER YA",]
+
+[0034]
+replacement_text = "र"
+replacement_codes = [ 2352,]
+replacement_desc = [ "0930 DEVANAGARI LETTER RA",]
+
+[0036]
+replacement_text = "ल"
+replacement_codes = [ 2354,]
+replacement_desc = [ "0932 DEVANAGARI LETTER LA",]
+
+[0039]
+replacement_text = "व"
+replacement_codes = [ 2357,]
+replacement_desc = [ "0935 DEVANAGARI LETTER VA",]
+
+[003A]
+replacement_text = "श"
+replacement_codes = [ 2358,]
+replacement_desc = [ "0936 DEVANAGARI LETTER SHA",]
+
+[003B]
+replacement_text = "ष"
+replacement_codes = [ 2359,]
+replacement_desc = [ "0937 DEVANAGARI LETTER SSA",]
+
+[003C]
+replacement_text = "स"
+replacement_codes = [ 2360,]
+replacement_desc = [ "0938 DEVANAGARI LETTER SA",]
+
+[003D]
+replacement_text = "ह"
+replacement_codes = [ 2361,]
+replacement_desc = [ "0939 DEVANAGARI LETTER HA",]
+
+[0041]
+replacement_text = "ऽ"
+replacement_codes = [ 2365,]
+replacement_desc = [ "093D DEVANAGARI SIGN AVAGRAHA",]
+
+[0042]
+replacement_text = "ा"
+replacement_codes = [ 2366,]
+replacement_desc = [ "093E DEVANAGARI VOWEL SIGN AA",]
+
+[0044]
+replacement_text = "ी"
+replacement_codes = [ 2368,]
+replacement_desc = [ "0940 DEVANAGARI VOWEL SIGN II",]
+
+[0045]
+replacement_text = "ु"
+replacement_codes = [ 2369,]
+replacement_desc = [ "0941 DEVANAGARI VOWEL SIGN U",]
+
+[0046]
+replacement_text = "ू"
+replacement_codes = [ 2370,]
+replacement_desc = [ "0942 DEVANAGARI VOWEL SIGN UU",]
+
+[0047]
+replacement_text = "ृ"
+replacement_codes = [ 2371,]
+replacement_desc = [ "0943 DEVANAGARI VOWEL SIGN VOCALIC R",]
+
+[004B]
+replacement_text = "े"
+replacement_codes = [ 2375,]
+replacement_desc = [ "0947 DEVANAGARI VOWEL SIGN E",]
+
+[004C]
+replacement_text = "ै"
+replacement_codes = [ 2376,]
+replacement_desc = [ "0948 DEVANAGARI VOWEL SIGN AI",]
+
+[004D]
+replacement_text = "ॉ"
+replacement_codes = [ 2377,]
+replacement_desc = [ "0949 DEVANAGARI VOWEL SIGN CANDRA O",]
+
+[004F]
+replacement_text = "ो"
+replacement_codes = [ 2379,]
+replacement_desc = [ "094B DEVANAGARI VOWEL SIGN O",]
+
+[0050]
+replacement_text = "ौ"
+replacement_codes = [ 2380,]
+replacement_desc = [ "094C DEVANAGARI VOWEL SIGN AU",]
+
+[0051]
+replacement_text = "्"
+replacement_codes = [ 2381,]
+replacement_desc = [ "094D DEVANAGARI SIGN VIRAMA",]
+
+[0054]
+replacement_text = "ॐ"
+replacement_codes = [ 2384,]
+replacement_desc = [ "0950 DEVANAGARI OM",]
+
+[0060]
+replacement_text = "ड़"
+replacement_codes = [ 2396,]
+replacement_desc = [ "095C DEVANAGARI LETTER DDDHA",]
+
+[0061]
+replacement_text = "ढ़"
+replacement_codes = [ 2397,]
+replacement_desc = [ "095D DEVANAGARI LETTER RHA",]
+
+[0068]
+replacement_text = "।"
+replacement_codes = [ 2404,]
+replacement_desc = [ "0964 DEVANAGARI DANDA",]
+
+[006A]
+replacement_text = "०"
+replacement_codes = [ 2406,]
+replacement_desc = [ "0966 DEVANAGARI DIGIT ZERO",]
+
+[006B]
+replacement_text = "१"
+replacement_codes = [ 2407,]
+replacement_desc = [ "0967 DEVANAGARI DIGIT ONE",]
+
+[006C]
+replacement_text = "२"
+replacement_codes = [ 2408,]
+replacement_desc = [ "0968 DEVANAGARI DIGIT TWO",]
+
+[006D]
+replacement_text = "३"
+replacement_codes = [ 2409,]
+replacement_desc = [ "0969 DEVANAGARI DIGIT THREE",]
+
+[006E]
+replacement_text = "४"
+replacement_codes = [ 2410,]
+replacement_desc = [ "096A DEVANAGARI DIGIT FOUR",]
+
+[006F]
+replacement_text = "५"
+replacement_codes = [ 2411,]
+replacement_desc = [ "096B DEVANAGARI DIGIT FIVE",]
+
+[0070]
+replacement_text = "६"
+replacement_codes = [ 2412,]
+replacement_desc = [ "096C DEVANAGARI DIGIT SIX",]
+
+[0071]
+replacement_text = "७"
+replacement_codes = [ 2413,]
+replacement_desc = [ "096D DEVANAGARI DIGIT SEVEN",]
+
+[0072]
+replacement_text = "८"
+replacement_codes = [ 2414,]
+replacement_desc = [ "096E DEVANAGARI DIGIT EIGHT",]
+
+[0073]
+replacement_text = "९"
+replacement_codes = [ 2415,]
+replacement_desc = [ "096F DEVANAGARI DIGIT NINE",]
+
+[0087]
+replacement_text = "◌"
+replacement_codes = [ 9676,]
+replacement_desc = [ "25CC DOTTED CIRCLE",]
+
+[02DE]
+replacement_text = "!"
+replacement_codes = [ 33,]
+replacement_desc = [ "0021 EXCLAMATION MARK",]
+
+[02E2]
+replacement_text = "'"
+replacement_codes = [ 39,]
+replacement_desc = [ "0027 APOSTROPHE",]
+
+[02E3]
+replacement_text = "("
+replacement_codes = [ 40,]
+replacement_desc = [ "0028 LEFT PARENTHESIS",]
+
+[02E4]
+replacement_text = ")"
+replacement_codes = [ 41,]
+replacement_desc = [ "0029 RIGHT PARENTHESIS",]
+
+[02E5]
+replacement_text = "*"
+replacement_codes = [ 42,]
+replacement_desc = [ "002A ASTERISK",]
+
+[02E6]
+replacement_text = "+"
+replacement_codes = [ 43,]
+replacement_desc = [ "002B PLUS SIGN",]
+
+[02E7]
+replacement_text = ","
+replacement_codes = [ 44,]
+replacement_desc = [ "002C COMMA",]
+
+[02E8]
+replacement_text = "-"
+replacement_codes = [ 45,]
+replacement_desc = [ "002D HYPHEN-MINUS",]
+
+[02E9]
+replacement_text = "."
+replacement_codes = [ 46,]
+replacement_desc = [ "002E FULL STOP",]
+
+[02EB]
+replacement_text = "0"
+replacement_codes = [ 48,]
+replacement_desc = [ "0030 DIGIT ZERO",]
+
+[02F5]
+replacement_text = ":"
+replacement_codes = [ 58,]
+replacement_desc = [ "003A COLON",]
+
+[02F6]
+replacement_text = ";"
+replacement_codes = [ 59,]
+replacement_desc = [ "003B SEMICOLON",]
+
+[02F8]
+replacement_text = "="
+replacement_codes = [ 61,]
+replacement_desc = [ "003D EQUALS SIGN",]
+
+[02FA]
+replacement_text = "?"
+replacement_codes = [ 63,]
+replacement_desc = [ "003F QUESTION MARK",]
+
+[02FB]
+replacement_text = "["
+replacement_codes = [ 91,]
+replacement_desc = [ "005B LEFT SQUARE BRACKET",]
+
+[02FD]
+replacement_text = "]"
+replacement_codes = [ 93,]
+replacement_desc = [ "005D RIGHT SQUARE BRACKET",]
+
+[0305]
+replacement_text = "–"
+replacement_codes = [ 8211,]
+replacement_desc = [ "2013 EN DASH",]
+
+[0306]
+replacement_text = "—"
+replacement_codes = [ 8212,]
+replacement_desc = [ "2014 EM DASH",]
+
+[0307]
+replacement_text = "‘"
+replacement_codes = [ 8216,]
+replacement_desc = [ "2018 LEFT SINGLE QUOTATION MARK",]
+
+[0308]
+replacement_text = "’"
+replacement_codes = [ 8217,]
+replacement_desc = [ "2019 RIGHT SINGLE QUOTATION MARK",]
+
+[0309]
+replacement_text = "“"
+replacement_codes = [ 8220,]
+replacement_desc = [ "201C LEFT DOUBLE QUOTATION MARK",]
+
+[030A]
+replacement_text = "”"
+replacement_codes = [ 8221,]
+replacement_desc = [ "201D RIGHT DOUBLE QUOTATION MARK",]
+
+[030B]
+replacement_text = "…"
+replacement_codes = [ 8230,]
+replacement_desc = [ "2026 HORIZONTAL ELLIPSIS",]
