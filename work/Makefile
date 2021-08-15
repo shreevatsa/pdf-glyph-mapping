@@ -38,12 +38,12 @@ fonts/: ${ORIG_PDF}
 
 # ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml} (but for now, Tjs-N)
 font-usage/: ${ORIG_PDF}
-	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase phase1
+	RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase phase1
 
 # fonts/font-N.ttf  ---[dump-glyphs]--->  glyphs/font-N/glyph-M.png
 glyphs/: fonts/
 	for f in fonts/font-*.ttf; do \
-		RUST_BACKTRACE=1 cargo run --release --bin dump-glyphs -- $$f glyphs/; \
+		RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-glyphs -- $$f glyphs/; \
 	done
 
 # font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}
@@ -58,8 +58,9 @@ maps/manual/: maps/look/
 
 # maps/manual/font-N.toml ---[validate-toml.py]---> maps/valid/font-N.toml
 maps/valid/: maps/manual/ maps/look/
-	python3 src/validate-maps.py maps/manual/ maps/valid/
+	mkdir maps/valid/
+	python3 ../src/validate_maps.py maps/manual/ maps/valid/
 
 # ORIG.pdf and maps/valid/font-N.toml ---[dump-tjs]---> ORIG.fixed.pdf
 $(ORIG).fixed.pdf: ${ORIG_PDF} maps/valid/
-	RUST_BACKTRACE=1 cargo run --release --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf --phase phase2
+	RUST_BACKTRACE=1 cargo +nightly run --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf --phase phase2
