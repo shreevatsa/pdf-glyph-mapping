@@ -42,7 +42,8 @@ import inspect
 
 
 def dprint(*args, **kwargs):
-    prefix = '    ' * (len(inspect.stack(0)) - 1)
+    stack_depth = len(inspect.stack(0)) - 1
+    prefix = '    ' * stack_depth
     if False:
         print(prefix, *args, **kwargs)
 
