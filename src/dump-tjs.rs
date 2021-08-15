@@ -450,8 +450,8 @@ fn wrap_text_operation(
             #[derive(Deserialize)]
             struct Replacements {
                 replacement_text: String,
-                replacement_codes: Box<[i32]>,
-                replacement_desc: Box<[String]>,
+                replacement_codes: Vec<i32>,
+                replacement_desc: Vec<String>,
             }
 
             let m: HashMap<String, Replacements> = toml::from_slice(&std::fs::read(filename)?)?;

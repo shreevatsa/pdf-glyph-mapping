@@ -82,7 +82,7 @@ def validate(mapping):
         seq = got.pop()
         out_mapping[glyph_id_str] = {
             'replacement_text': ''.join(t_from_seq(seq)),
-            'replacment_codes': list(c_from_seq(seq)),
+            'replacement_codes': list(c_from_seq(seq)),
             'replacement_desc': list(d_from_seq(seq))
         }
 

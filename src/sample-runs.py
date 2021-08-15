@@ -235,20 +235,20 @@ toml_file_header_comment = '''
 #
 #         [0039]
 #         replacement_text = "व"
-#         replacment_codes = [ 2357,]  # Same as [0x0935]
+#         replacement_codes = [ 2357,]  # Same as [0x0935]
 #         replacement_desc = [ "0935 DEVANAGARI LETTER VA",]
 #
 #         [0027]
 #         replacement_text = "ण"
-#         replacment_codes = [ 2339,] # Same as [0x0923]
+#         replacement_codes = [ 2339,] # Same as [0x0923]
 #         replacement_desc = [ "0923 DEVANAGARI LETTER NNA",]
 #
 #         [01C4]
 #         replacement_text = "र्<CCprec>ों"
-#         replacment_codes = [ 2352, 2381, -1, 2379, 2306,] # Same as [0x0930, 0x094D, -1, 0x094B, 0x0902]
+#         replacement_codes = [ 2352, 2381, -1, 2379, 2306,] # Same as [0x0930, 0x094D, -1, 0x094B, 0x0902]
 #         replacement_desc = [ "0930 DEVANAGARI LETTER RA", "094D DEVANAGARI SIGN VIRAMA", "<CCprec>", "094B DEVANAGARI VOWEL SIGN O", "0902 DEVANAGARI SIGN ANUSVARA",]
 #
-# where you could write just one of `replacement_text`, `replacment_codes`, `replacement_desc`, or even just:
+# where you could write just one of `replacement_text`, `replacement_codes`, `replacement_desc`, or even just:
 #
 #         0039 = [0x0935]
 #         0027 = [0x0923]
