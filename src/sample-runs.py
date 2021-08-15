@@ -65,7 +65,7 @@ body {
 <body>
 ''' + rf'''
 <h1>{font_name}</h1>
-<p>Using helper font ....</p>
+<p>Using helper font(s): {' and '.join(str(basename) for basename in helpers.keys())}</p>
 <dl>'''
         self.footer = r'''
 </body>
