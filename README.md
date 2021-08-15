@@ -15,18 +15,23 @@ Roughly, the idea is to extract font data from the PDF file, use visual or other
 
 ## Usage
 
-(Short version: Run `make`.)
+(Short version: Run `make` and follow instructions.)
 
-0.  (Not part of this repository.) Extract the font data from the PDF file, in any way. (E.g.: `mutool extract`). It also helps to preprocess the PDF file with `mutool clean` or `qpdf --qdf`.
+1.  (Not part of this repository.) Prerequisites:
+    1.  Make sure `mutool` is installed (and also Python and Rust).
+    2.  If you know fonts that may be related to the fonts in the directory, run `ttx` (from [fonttools](https://fonttools.readthedocs.io/en/latest/ttx.html)) on them, and put the resulting files inside the `work/helper_fonts/` directory.
+2.  Run `make`, from within the `work/` directory. This will do the following:
+    1.  Extracts the font data from the PDF file, using `mutool extract`.
+    2.  Dumps each glyph from each font as a bitmap image, using the `dump-glyphs` binary from here.
+    3.  Extracts each "text operation" (`Tj`, `TJ`, `'`, `"`; see [9.4.3 Text-Showing Operators](https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf#page=258) in the PDF 1.7 spec) in the PDF (which glyphs from which font were used), using the `dump-tjs` binary from here.
+    4.  Runs the `sample-runs.py` script from here, which
+        1.  generates the glyph_id to Unicode mapping known so far (see [this comment](https://github.com/shreevatsa/pdf-glyph-mapping/blob/bbecd8154c171c97b21e76c612f2b66fdf5f873b/src/sample-runs.py#L212-L258)),
+        2.  generates HTML pages with some visual information about each glyph used in the PDF (showing it in context with neighbouring glyphs etc).
+3.  Create a new directory called `maps/manual/` and
+    1.  copy the `toml` files under `maps/look/` into it,
+    2.  (**The main manual grunt work needed**) Edit each of those TOML files, and (using the HTML files that have been generated), for each glyph that is not already mapped in the PDF itself, add the Unicode mapping for that glyph. (Any one format will do; the existing TOML entries are highly redundant but you can be concise: [see the comment](https://github.com/shreevatsa/pdf-glyph-mapping/blob/bbecd8154c171c97b21e76c612f2b66fdf5f873b/src/sample-runs.py#L253-L257).)
+4.  Run `make` again. This will do the following:
+    1.  Validates that the TOML files you generated are ok (it won't catch mistakes in the Unicode mapping though!), and
+    2.  Generates a copy of your original PDF, with data in it about the actual text corresponding to each text operation.
 
-1.  Run `dump-glyphs` on such a font file, to dump each glyph in it as a bitmap image.
-
-2.  Run `dump-tjs` on the PDF file, to dump the operands of text-showing operators (`Tj`, `TJ`, `'`, `"`; see [9.4.3 Text-Showing Operators](https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf#page=258) in the PDF 1.7 spec), grouped by font (identified by object number in the PDF file).
-
-3.  Run `sample-runs` on the output of the above two. This will generate a HTML file showing a few samples for each glyph, so that you can give each glyph a name.
-
-    Save this output to a file in some format; ideally we want a rule that, given a sequence of glyph ids, gives corresponding text.
-
-4.  (Doesn't exist yet; not started.) Run `fix-actualtext` to apply the fixes back to the PDF.
-
-These scripts are rather hacky and hard-code decisions about filenames and PDF structure etc; they will almost certainly need to be changed.
+All this has been tested only with one large PDF. These scripts are rather hacky and hard-code decisions about PDF structure etc; for other PDFs they will likely need to be changed.
