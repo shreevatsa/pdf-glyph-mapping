@@ -201,7 +201,9 @@ def main():
         pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
         open(out_filename_html, 'w').write(h.html + h.footer)
         mapping = validate_maps.validate({key: {'replacement_codes': list(value)} for (key, value) in h.to_unicode.items()})
-        toml.dump(mapping, open(out_filename_toml, 'w'))
+        with open(out_filename_toml, 'w') as f:
+            f.write(toml_file_header_comment)
+            toml.dump(mapping, f)
 
     print('\n\n', f'Done! Now copy the {len(matches)} files maps/look/*.toml into a new directory maps/manual/ and fix them up (use the HTML files for help).')
 

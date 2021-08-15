@@ -149,6 +149,9 @@ fn process_textops_in_doc(
     let pages = document.get_pages();
     println!("{} pages in this document", pages.len());
     for (page_num, page_id) in pages {
+        if page_num != 201 {
+            continue;
+        }
         let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
         println!(
             "Page number {} has page id {:?} and page resources: {:?} and {:?}",
@@ -198,18 +201,24 @@ fn process_textops_in_doc(
             )?;
         }
     }
-    for (k, v) in font_glyph_mappings {
-        let map_filename = format!("map-{}-{}.toml", k.0, k.1);
-        println!("Creating file: {:?}", map_filename);
-        let _ = std::fs::write(map_filename, toml::to_vec(&v)?);
+    if let Phase::Phase2Fix = phase {
+        for (k, v) in font_glyph_mappings {
+            let map_filename = format!("map-{}-{}.toml", k.0, k.1);
+            println!("Creating file: {:?}", map_filename);
+            let mut map_for_toml: HashMap<String, String> = HashMap::new();
+            for (glyph_id, text) in v {
+                map_for_toml.insert(format!("{:04X}", glyph_id), text);
+            }
+            let _ = std::fs::write(map_filename, toml::to_vec(&map_for_toml)?);
+        }
+        if let Some(output_pdf_filename) = output_pdf_file {
+            println!("Creating file: {:?}", output_pdf_filename);
+            document.save(output_pdf_filename)?;
+        } else {
+            todo!()
+        }
     }
-    if let Some(output_pdf_filename) = output_pdf_file {
-        println!("Creating file: {:?}", output_pdf_filename);
-        document.save(output_pdf_filename)?;
-        Ok(())
-    } else {
-        todo!()
-    }
+    Ok(())
 }
 
 /// For each text operator inside `object_id`, calls either `dump_text_operation` or `wrap_text_operation`.
