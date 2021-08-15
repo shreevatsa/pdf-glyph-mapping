@@ -17,6 +17,8 @@ itertools = "0.10.1"
 pprof = { version = "0.4", features = ["flamegraph"] }
 toml = "0.5.8"
 anyhow = "1.0.42"
+serde_derive = "1.0.127"
+serde = "1.0.127"
 
 [[bin]]
 name = "dump-glyphs"

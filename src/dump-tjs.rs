@@ -7,6 +7,7 @@ use anyhow::Result;
 use clap::Clap;
 use itertools::Itertools;
 use lopdf::ObjectId;
+use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
@@ -259,6 +260,7 @@ fn process_textops_in_object(
                         current_font.clone(),
                         font_glyph_mappings,
                         glyph_ids,
+                        maps_dir,
                     )?
                 }
             };
@@ -371,8 +373,9 @@ fn wrap_text_operation(
     current_font: (String, ObjectId),
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     glyph_ids: Vec<u16>,
+    maps_dir: &std::path::PathBuf,
 ) -> Result<usize> {
-    let mytext = actual_text_for(&glyph_ids, current_font, font_glyph_mappings)?;
+    let mytext = actual_text_for(&glyph_ids, current_font, font_glyph_mappings, maps_dir)?;
     let mytext_encoded_for_actualtext = {
         /*
         In the PDF 1.7 spec, see
@@ -410,10 +413,11 @@ fn wrap_text_operation(
         glyph_ids: &[u16],
         current_font: (String, ObjectId),
         font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+        maps_dir: &std::path::PathBuf,
     ) -> Result<String> {
         // println!("Looking up font {:?}", current_font);
         if !font_glyph_mappings.contains_key(&current_font.1) {
-            let tmp = get_font_mapping(current_font.1, &current_font.0)?;
+            let tmp = get_font_mapping(current_font.1, &current_font.0, maps_dir)?;
             font_glyph_mappings.insert(current_font.1, tmp);
         }
         let current_map = font_glyph_mappings.get(&current_font.1).unwrap();
@@ -435,33 +439,28 @@ fn wrap_text_operation(
         fn get_font_mapping(
             font_id: ObjectId,
             base_font_name: &str,
+            maps_dir: &std::path::PathBuf,
         ) -> Result<HashMap<u16, String>> {
-            let mut ret = HashMap::<u16, std::string::String>::new();
-            let filename = basename_for_font(font_id, base_font_name) + ".toml";
-            println!("Trying to read from filename {}", filename);
-            let s = std::fs::read_to_string(filename)?;
-            for (i, line) in s.lines().enumerate() {
-                if i > 0 {
-                    let (glyph_id, meaning) = match regex::Regex::new(
-                        // TODO: The "meaning" should be arbitrary Unicode string.
-                        r"(?P<glyph_id>[[:xdigit:]]{4}) -> \{(?P<meaning>[[:xdigit:]]{4})}",
-                    )?
-                    .captures(line)
-                    {
-                        Some(captures) => (
-                            captures.name("glyph_id").unwrap().as_str(),
-                            captures.name("meaning").unwrap().as_str(),
-                        ),
-                        None => ("", ""),
-                    };
-                    // println!("Line #{}# maps #{}# to #{}#", line, glyph_id, meaning);
-                    ret.insert(
-                        u16::from_str_radix(glyph_id, 16)?,
-                        std::char::from_u32(u32::from_str_radix(meaning, 16)?)
-                            .unwrap()
-                            .to_string(),
-                    );
-                }
+            let filename = maps_dir.join(format!(
+                "{}.toml",
+                basename_for_font(font_id, base_font_name)
+            ));
+            println!("Trying to read from filename {:?}", filename);
+
+            #[derive(Deserialize)]
+            struct Replacements {
+                replacement_text: String,
+                replacement_codes: Box<[i32]>,
+                replacement_desc: Box<[String]>,
+            }
+
+            let m: HashMap<String, Replacements> = toml::from_slice(&std::fs::read(filename)?)?;
+            let mut ret = HashMap::<u16, String>::new();
+            for (glyph_id_str, replacements) in m {
+                ret.insert(
+                    u16::from_str_radix(&glyph_id_str, 16)?,
+                    replacements.replacement_text,
+                );
             }
             Ok(ret)
         }
