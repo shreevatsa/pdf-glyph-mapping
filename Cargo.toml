@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Shreevatsa R <shreevatsa.public@gmail.com>"]
 edition = "2018"
 
+[[bin]]
+name = "dump-glyphs"
+path = "src/dump-glyphs.rs"
+
+[[bin]]
+name = "dump-tjs"
+path = "src/dump-tjs.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,11 +27,9 @@ toml = "0.5.8"
 anyhow = "1.0.42"
 serde_derive = "1.0.127"
 serde = "1.0.127"
+text_io = "0.1.9"
 
-[[bin]]
-name = "dump-glyphs"
-path = "src/dump-glyphs.rs"
-
-[[bin]]
-name = "dump-tjs"
-path = "src/dump-tjs.rs"
+[profile.release]
+debug = 1         # Add debug information for backtraces.
+lto = true        # Try to make it faster to run (slower to compile).
+codegen-units = 1 # Try to make it faster to run (slower to compile).

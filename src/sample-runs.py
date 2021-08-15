@@ -112,9 +112,9 @@ body {
                         as_str = ''.join(chr(c) for c in sequence)
                         as_names = ' followed by '.join(
                             f'{c:04X} (={unicodedata.name(chr(c))})' for c in sequence)
-                        # Add the "helped" equivalent for this glyph id.
-                        if glyph_id_str not in self.to_unicode:
-                            self.to_unicode[glyph_id_str] = sequence
+                        # # Add the "helped" equivalent for this glyph id.
+                        # if glyph_id_str not in self.to_unicode:
+                        #     self.to_unicode[glyph_id_str] = sequence
                         mapped_helper_sequences.append(f'{as_str} ({as_names})')
                 else:
                     mapped_helper = f'(no name in helper font {font} for {glyph_id_str})'

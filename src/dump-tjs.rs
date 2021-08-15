@@ -198,6 +198,11 @@ fn process_textops_in_doc(
             )?;
         }
     }
+    for (k, v) in font_glyph_mappings {
+        let map_filename = format!("map-{}-{}.toml", k.0, k.1);
+        println!("Creating file: {:?}", map_filename);
+        let _ = std::fs::write(map_filename, toml::to_vec(&v)?);
+    }
     if let Some(output_pdf_filename) = output_pdf_file {
         println!("Creating file: {:?}", output_pdf_filename);
         document.save(output_pdf_filename)?;
@@ -417,28 +422,33 @@ fn wrap_text_operation(
     ) -> Result<String> {
         // println!("Looking up font {:?}", current_font);
         if !font_glyph_mappings.contains_key(&current_font.1) {
-            let tmp = get_font_mapping(current_font.1, &current_font.0, maps_dir)?;
+            let tmp = get_font_mapping(&current_font.0, current_font.1, maps_dir)?;
             font_glyph_mappings.insert(current_font.1, tmp);
         }
-        let current_map = font_glyph_mappings.get(&current_font.1).unwrap();
-        // TODO: Replace with something that actually uses the external maps :-)
+        let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
+
         let actual_text_string = glyph_ids
             .iter()
-            .map(|n| {
-                match current_map.get(n) {
-                    Some(v) => v.to_string(),
-                    None => {
-                        // println!("No mapping for {:04X}.", n);
-                        format!("{{{:04X}}}", n)
-                    }
+            .map(|glyph_id| {
+                if let Some(v) = current_map.get(glyph_id) {
+                    v.to_string()
+                } else {
+                    println!(
+                        "No mapping found for glyph {:04X} in font {}!",
+                        glyph_id, current_font.0
+                    );
+                    println!("Nevermind, enter replacement text now:");
+                    let replacement: String = text_io::read!("{}\n");
+                    current_map.insert(*glyph_id, replacement.clone());
+                    replacement
                 }
             })
             .join("");
         return Ok(actual_text_string);
 
         fn get_font_mapping(
-            font_id: ObjectId,
             base_font_name: &str,
+            font_id: ObjectId,
             maps_dir: &std::path::PathBuf,
         ) -> Result<HashMap<u16, String>> {
             let filename = maps_dir.join(format!(
