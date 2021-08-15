@@ -94,9 +94,22 @@ def validate(mapping):
 
 # python3 src/validate-maps.py maps/manual/ maps/valid/
 if __name__ == '__main__':
-    toml_filename = sys.argv[1]
-    assert toml_filename.endswith('.toml'), toml_filename
-    mapping = toml.load(open(toml_filename))
-    new_out_mapping = validate(mapping)
-    out_filename = toml_filename[:-5] + '.fixed.toml'
-    toml.dump(new_out_mapping, open(out_filename, 'w'))
+    first_arg = sys.argv[1]
+    if first_arg.endswith('.toml'):
+        toml_filenames = [(first_arg, first_arg[:-5] + '.fixed.toml')]
+    else:
+        # Must be a directory.
+        out_dir = sys.argv[2]
+        toml_filenames = []
+        import glob
+        import os.path
+        import pathlib
+        for in_file in glob.glob(os.path.join(first_arg, '*.toml')):
+            basename = pathlib.Path(in_file).name
+            out_file = os.path.join(out_dir, basename)
+            toml_filenames.append((in_file, out_file))
+
+    for (toml_in, toml_out) in toml_filenames:
+        mapping = toml.load(open(toml_in))
+        new_out_mapping = validate(mapping)
+        toml.dump(new_out_mapping, open(toml_out, 'w'))
