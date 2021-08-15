@@ -149,9 +149,6 @@ fn process_textops_in_doc(
     let pages = document.get_pages();
     println!("{} pages in this document", pages.len());
     for (page_num, page_id) in pages {
-        if page_num != 201 {
-            continue;
-        }
         let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
         println!(
             "Page number {} has page id {:?} and page resources: {:?} and {:?}",
