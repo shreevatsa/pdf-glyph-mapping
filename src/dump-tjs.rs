@@ -458,15 +458,16 @@ fn wrap_text_operation(
                 }
             })
             .join("");
+        return Ok(actual_text_string);
 
-        let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
-        let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
-        let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
-        let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
-        // if actual_text_string.contains("<CC") {
-        //     println!("Some leftovers in #{}#", actual_text_string);
-        // }
-        return Ok(actual_text_string.to_string());
+        // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
+        // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
+        // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
+        // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
+        // // if actual_text_string.contains("<CC") {
+        // //     println!("Some leftovers in #{}#", actual_text_string);
+        // // }
+        // return Ok(actual_text_string.to_string());
 
         fn get_font_mapping(
             base_font_name: &str,
