@@ -63,7 +63,7 @@ maps/valid/: maps/manual/ maps/look/
 
 # ORIG.pdf and maps/valid/font-N.toml ---[dump-tjs]---> ORIG.fixed.pdf
 $(ORIG).fixed.pdf: ${ORIG_PDF} maps/valid/
-	RUST_BACKTRACE=1 cargo +nightly run --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf --phase phase2
+	RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-tjs -- ${ORIG_PDF} maps/valid/ ${ORIG}.fixed.pdf --phase phase2
 
 clean:
 	rm -vrf glyphs/

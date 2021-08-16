@@ -72,7 +72,7 @@ body {
 </html>'''
 
     def img_for_glyph(self, main_glyph, glyph):
-        filename = f'../../glyphs/font-{self.font_id_main}.ttf/glyph-{glyph}.png'
+        filename = f'../../glyphs/font-{self.font_id_main:0>4}.ttf/glyph-{glyph}.png'
         classname = "glyph-main" if glyph == main_glyph else "glyph-other"
         return f'<img title="{glyph}" src="{filename}" class="{classname}"/>'
 

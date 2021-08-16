@@ -32,6 +32,6 @@ Roughly, the idea is to extract font data from the PDF file, use visual or other
     2.  (**The main manual grunt work needed**) Edit each of those TOML files, and (using the HTML files that have been generated), for each glyph that is not already mapped in the PDF itself, add the Unicode mapping for that glyph. (Any one format will do; the existing TOML entries are highly redundant but you can be concise: [see the comment](https://github.com/shreevatsa/pdf-glyph-mapping/blob/bbecd8154c171c97b21e76c612f2b66fdf5f873b/src/sample-runs.py#L253-L257).)
 4.  Run `make` again. This will do the following:
     1.  Validates that the TOML files you generated are ok (it won't catch mistakes in the Unicode mapping though!), and
-    2.  (**This is slow, may take 1 second per page.**) Generates a copy of your original PDF, with data in it about the actual text corresponding to each text operation.
+    2.  (**This is slow, may take ~150 ms per page.**) Generates a copy of your original PDF, with data in it about the actual text corresponding to each text operation.
 
 All this has been tested only with one large PDF. These scripts are rather hacky and hard-code decisions about PDF structure etc; for other PDFs they will likely need to be changed.
