@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 
 enum Phase {
     Phase1Dump,
@@ -150,10 +151,12 @@ fn process_textops_in_doc(
     println!("{} pages in this document", pages.len());
     for (page_num, page_id) in pages {
         let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
-        println!(
-            "Page number {} has page id {:?} and page resources: {:?} and {:?}",
-            page_num, page_id, maybe_dict, resource_objects
-        );
+        if page_num % 10 == 0 {
+            println!(
+                "Page number {} has page id {:?} and page resources: {:?} and {:?}",
+                page_num, page_id, maybe_dict, resource_objects
+            );
+        }
         let mut fonts = lopdf::Dictionary::new();
         if let Some(resource_dict) = maybe_dict {
             if let Ok(f) = resource_dict.get(b"Font") {
@@ -290,13 +293,17 @@ fn process_textops_in_object(
                 }
                 (id, object.as_stream()?.clone())
             };
+            // TODO: Use an Option<Dictionary> instead of allocating a new one.
             let empty_dict = lopdf::Dictionary::new();
             let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
                 Ok(value) => {
                     let resources_dict = value.as_dict()?;
                     (
                         resources_dict.get(b"Font")?.as_dict()?,
-                        resources_dict.get(b"XObject")?.as_dict()?,
+                        match resources_dict.get(b"XObject") {
+                            Ok(rd) => rd.as_dict()?,
+                            Err(_) => &empty_dict,
+                        },
                     )
                 }
                 Err(_) => (&empty_dict, &empty_dict),
@@ -445,22 +452,43 @@ fn wrap_text_operation(
                     );
                     println!("Nevermind, enter replacement text now:");
                     let replacement: String = text_io::read!("{}\n");
+                    println!("Thanks, using replacement #{}#", replacement);
                     current_map.insert(*glyph_id, replacement.clone());
                     replacement
                 }
             })
             .join("");
-        return Ok(actual_text_string);
+
+        let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
+        let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
+        let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
+        let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
+        // if actual_text_string.contains("<CC") {
+        //     println!("Some leftovers in #{}#", actual_text_string);
+        // }
+        return Ok(actual_text_string.to_string());
 
         fn get_font_mapping(
             base_font_name: &str,
             font_id: ObjectId,
             maps_dir: &std::path::PathBuf,
         ) -> Result<HashMap<u16, String>> {
-            let filename = maps_dir.join(format!(
-                "{}.toml",
-                basename_for_font(font_id, base_font_name)
-            ));
+            // let filename = maps_dir.join(format!(
+            //     "{}.toml",
+            //     basename_for_font(font_id, base_font_name)
+            // ));
+            let glob_pattern = format!("{}/*{}.toml", maps_dir.to_string_lossy(), base_font_name);
+            println!(
+                "For font {:?} = {}, looking for map files matching pattern #{}#",
+                font_id, base_font_name, glob_pattern
+            );
+            let mut filename = PathBuf::new();
+            for entry in glob::glob(&glob_pattern).expect("Failed to read glob pattern") {
+                match entry {
+                    Ok(path) => filename = path,
+                    Err(e) => println!("While trying to match {}: {:?}", glob_pattern, e),
+                }
+            }
             println!("Trying to read from filename {:?}", filename);
 
             #[derive(Deserialize)]
