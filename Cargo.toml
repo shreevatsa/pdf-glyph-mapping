@@ -28,8 +28,9 @@ anyhow = "1.0.42"
 serde_derive = "1.0.127"
 serde = "1.0.127"
 text_io = "0.1.9"
+glob = "0.3.0"
 
 [profile.release]
-debug = 1         # Add debug information for backtraces.
-lto = true        # Try to make it faster to run (slower to compile).
-codegen-units = 1 # Try to make it faster to run (slower to compile).
+debug = 2  # Add debug information for backtraces.
+lto = true # Try to make it faster to run (slower to compile).
+# codegen-units = 1 # Try to make it faster to run (slower to compile).

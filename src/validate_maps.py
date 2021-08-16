@@ -74,12 +74,18 @@ def validate(mapping):
         # Hack for being able to run on font-usage/font-*.toml
         if isinstance(replacements, list):
             replacements = {'replacement_codes': replacements}
+        # Hack for running on the map generated from csv
+        if isinstance(replacements, str):
+            replacements = {'replacement_text': replacements}
         t = tuple(seq_from_t(replacements.get('replacement_text')))
         c = tuple(seq_from_c(replacements.get('replacement_codes')))
         d = tuple(seq_from_d(replacements.get('replacement_desc')))
         got = set(l for l in [t, c, d] if l)
-        assert len(got) == 1, (t, c, d)
-        seq = got.pop()
+        if glyph_id_str in ['0262', '025E'] and replacements == {'replacement_text': ''}:
+            seq = ()
+        else:
+            assert len(got) == 1, (glyph_id_str, replacements, t, c, d)
+            seq = got.pop()
         out_mapping[glyph_id_str] = {
             'replacement_text': ''.join(t_from_seq(seq)),
             'replacement_codes': list(c_from_seq(seq)),
