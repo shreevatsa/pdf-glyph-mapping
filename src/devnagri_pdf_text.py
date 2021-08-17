@@ -186,6 +186,9 @@ def unicode_codepoints_for_glyph_id(ttx: str):
 
 
 def normalize(r):
-    r = re.sub(r'ि(([क-ह]्)*[क-ह])', r'\1ि', r)
-    r = re.sub(r'(([क-ह]्)*[क-ह][^क-ह]*)र्', r'र्\1', r)
+    a = ''
+    while a != r:
+        a = r
+        b = re.sub(r'(.)<CCsucc>(([क-हक़-य़]़?्)*[क-हक़-य़]़?)', r'\2\1', a)
+        r = re.sub(r'(([क-हक़-य़]़?्)*[क-हक़-य़ऋ][^क-हक़-य़ऋ]*)र्<CCprec>', r'र्\1', b)
     return r
