@@ -3,9 +3,73 @@ Some scripts to help make sense of individual glyphs in a PDF, and map them to a
 
 ## What's this?
 
-Text that requires complex text layout (because of being in Indic scripts, say) cannot always be copied correctly from PDFs. Here is a bunch of tools that may help in some cases. (Tested with only a few PDFs so far.)
+Text that requires complex text layout (because of being in Indic scripts, say) cannot always be copied correctly from PDFs. Here is a bunch of tools that may help in some cases.
 
-Roughly, the idea is to extract font data from the PDF file, use visual or other means to associate each glyph with a meaning (roughly: equivalent Unicode sequence, plus a bit more), then use this information to convert each text run to the corresponding text. We could even post-process the PDF file (not implemented yet), to wrap each text sequence in a span of `/ActualText`.
+Roughly, the idea is to
+- extract font data from the PDF file, 
+- each glyph with its equivalent Unicode sequence (manually if necessary), 
+- use this information to convert each text run in the PDF to the corresponding text. (By post-processing the PDF file to wrap each text run inside  `/ActualText`.)
+
+## Background
+
+Ignoring PDF files that are just a collection of images (scans of pages), text in a PDF file consists of laying out glyphs from a font. For example, in a certain PDF that uses the font Noto Sans Devanagari, the word प्राप्त may be formed by laying out four glyphs:
+
+![0112](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0112.png)
+![0042](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0042.png)
+![00CB](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-00CB.png)
+![0028](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0028.png)
+
+In this font, these glyphs happen to have numerical IDs (like 0112, 0042, 00CB, 0028) that are font-specific. If we'd like to get text out of this, and the PDF does not provide it with `/ActualText`, we need to map the four glyphs to the corresponding Unicode scalar values:
+
+- 0112 (![0112](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0112.png)) maps to 
+  - 092A DEVANAGARI LETTER PA
+  - 094D DEVANAGARI SIGN VIRAMA
+  - 0930 DEVANAGARI LETTER RA
+- 0042 (![0042](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0042.png)) maps to
+  - 093E DEVANAGARI VOWEL SIGN AA
+- 00CB (![00CB](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-00CB.png)) maps to 
+  - 092A DEVANAGARI LETTER PA
+  - 094D DEVANAGARI SIGN VIRAMA
+- 0028 (![0028](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0028.png)) maps to
+  - 0924 DEVANAGARI LETTER TA
+
+Sometimes, part of this mapping (like the last item above) may be included in the PDF itself (CMap), but nontrivial cases (like the first one) often aren't.
+
+Roughly speaking, the glyph ids are laid out in visual order while Unicode text is in phonetic order. So the correspondence may be nontrivial. See the example [page 36 here](https://itextpdf.com/sites/default/files/2018-12/PP_Advanced_typography_in_PDF-compressed.pdf#page=36); a couple more examples below:
+
+1.  The word विकर्ण may be laid out as:
+
+    ![0231](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0231.png)
+    ![0039](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0039.png)
+    ![0019](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0019.png)
+    ![0027](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0027.png)
+    ![00B5](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-00B5.png)
+
+    and we want this to correspond to the sequence of codepoints
+
+    1. 0935 DEVANAGARI LETTER VA
+    2. 093F DEVANAGARI VOWEL SIGN I
+    3. 0915 DEVANAGARI LETTER KA
+    4. 0930 DEVANAGARI LETTER RA
+    5. 094D DEVANAGARI SIGN VIRAMA
+    6. 0923 DEVANAGARI LETTER NNA
+
+    (The first glyph corresponds to the second codepoint, and the last glyph corresponds to the fourth and fifth codepoints.)
+
+2.  The word धर्मो may be laid out as:
+
+    ![002B](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-002B.png)
+    ![0032](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0032.png)
+    ![01C3](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-01C3.png)
+
+    and the word सर्वांग as:
+
+    ![003C](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-003C.png)
+    ![0039](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0039.png)
+    ![0042](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0042.png)
+    ![01CB](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-01CB.png)
+    ![001B](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-001B.png)
+
 
 ## Example
 
