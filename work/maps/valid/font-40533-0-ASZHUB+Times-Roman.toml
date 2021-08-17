@@ -1,0 +1,39 @@
+[0003]
+replacement_text = " "
+replacement_codes = [ 32,]
+replacement_desc = [ "0020 SPACE",]
+
+[0044]
+replacement_text = "a"
+replacement_codes = [ 97,]
+replacement_desc = [ "0061 LATIN SMALL LETTER A",]
+
+[0045]
+replacement_text = "b"
+replacement_codes = [ 98,]
+replacement_desc = [ "0062 LATIN SMALL LETTER B",]
+
+[0048]
+replacement_text = "e"
+replacement_codes = [ 101,]
+replacement_desc = [ "0065 LATIN SMALL LETTER E",]
+
+[004C]
+replacement_text = "i"
+replacement_codes = [ 105,]
+replacement_desc = [ "0069 LATIN SMALL LETTER I",]
+
+[004F]
+replacement_text = "l"
+replacement_codes = [ 108,]
+replacement_desc = [ "006C LATIN SMALL LETTER L",]
+
+[0050]
+replacement_text = "m"
+replacement_codes = [ 109,]
+replacement_desc = [ "006D LATIN SMALL LETTER M",]
+
+[005A]
+replacement_text = "w"
+replacement_codes = [ 119,]
+replacement_desc = [ "0077 LATIN SMALL LETTER W",]

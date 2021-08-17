@@ -1,0 +1,74 @@
+[0023]
+replacement_text = "@"
+replacement_codes = [ 64,]
+replacement_desc = [ "0040 COMMERCIAL AT",]
+
+[0044]
+replacement_text = "a"
+replacement_codes = [ 97,]
+replacement_desc = [ "0061 LATIN SMALL LETTER A",]
+
+[0045]
+replacement_text = "b"
+replacement_codes = [ 98,]
+replacement_desc = [ "0062 LATIN SMALL LETTER B",]
+
+[0048]
+replacement_text = "e"
+replacement_codes = [ 101,]
+replacement_desc = [ "0065 LATIN SMALL LETTER E",]
+
+[004A]
+replacement_text = "g"
+replacement_codes = [ 103,]
+replacement_desc = [ "0067 LATIN SMALL LETTER G",]
+
+[004B]
+replacement_text = "h"
+replacement_codes = [ 104,]
+replacement_desc = [ "0068 LATIN SMALL LETTER H",]
+
+[004C]
+replacement_text = "i"
+replacement_codes = [ 105,]
+replacement_desc = [ "0069 LATIN SMALL LETTER I",]
+
+[004E]
+replacement_text = "k"
+replacement_codes = [ 107,]
+replacement_desc = [ "006B LATIN SMALL LETTER K",]
+
+[004F]
+replacement_text = "l"
+replacement_codes = [ 108,]
+replacement_desc = [ "006C LATIN SMALL LETTER L",]
+
+[0051]
+replacement_text = "n"
+replacement_codes = [ 110,]
+replacement_desc = [ "006E LATIN SMALL LETTER N",]
+
+[0052]
+replacement_text = "o"
+replacement_codes = [ 111,]
+replacement_desc = [ "006F LATIN SMALL LETTER O",]
+
+[0053]
+replacement_text = "p"
+replacement_codes = [ 112,]
+replacement_desc = [ "0070 LATIN SMALL LETTER P",]
+
+[0055]
+replacement_text = "r"
+replacement_codes = [ 114,]
+replacement_desc = [ "0072 LATIN SMALL LETTER R",]
+
+[0056]
+replacement_text = "s"
+replacement_codes = [ 115,]
+replacement_desc = [ "0073 LATIN SMALL LETTER S",]
+
+[0057]
+replacement_text = "t"
+replacement_codes = [ 116,]
+replacement_desc = [ "0074 LATIN SMALL LETTER T",]
