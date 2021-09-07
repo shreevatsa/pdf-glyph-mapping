@@ -19,9 +19,9 @@ enum Phase {
     Phase2Fix,
 }
 
+/// Parse a PDF file either to dump text operations (Tj etc) in it,
+/// or to "fix" all text by surrounding them with /ActualText.
 fn main() -> Result<()> {
-    /// Parse a PDF file either to dump text operations (Tj etc) in it,
-    /// or to "fix" all text by surrounding them with /ActualText.
     #[derive(Clap)]
     struct Opts {
         // #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
@@ -49,14 +49,168 @@ fn main() -> Result<()> {
 
     match opts.phase {
         Phase::Phase1Dump => {
-            dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
+            /// For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
+            fn _dump_tounicode_mappings(
+                document: &lopdf::Document,
+                maps_dir: std::path::PathBuf,
+            ) -> Result<()> {
+                for (object_id, object) in &document.objects {
+                    if let Ok(dict) = object.as_dict() {
+                        if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
+                            let (base_font_name, font_id) = real_font_id(*object_id, &document)?;
+                            // map from glyph id (as 4-digit hex string) to set of codepoints.
+                            // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
+                            let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
+                            let stream = stream_object.as_stream()?;
+                            // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
+                            if let Ok(content) = stream.decode_content() {
+                                for op in content.operations {
+                                    let operator = op.operator;
+                                    if operator == "endbfchar" {
+                                        for src_and_dst in op.operands.chunks(2) {
+                                            assert_eq!(src_and_dst.len(), 2);
+                                            let src = from_two_bytes(src_and_dst[0].as_str()?);
+                                            let dst = from_two_bytes(src_and_dst[1].as_str()?);
+                                            if dst != 0 {
+                                                mapped
+                                                    .entry(format!("{:04X}", src))
+                                                    .or_default()
+                                                    .insert(dst);
+                                            }
+                                        }
+                                    } else if operator == "endbfrange" {
+                                        for begin_end_offset in op.operands.chunks(3) {
+                                            assert_eq!(begin_end_offset.len(), 3);
+                                            let begin =
+                                                from_two_bytes(begin_end_offset[0].as_str()?);
+                                            let end = from_two_bytes(begin_end_offset[1].as_str()?);
+                                            let offset =
+                                                from_two_bytes(begin_end_offset[2].as_str()?);
+                                            for src in begin..=end {
+                                                let dst = src - begin + offset;
+                                                if dst != 0 {
+                                                    mapped
+                                                        .entry(format!("{:04X}", src))
+                                                        .or_default()
+                                                        .insert(dst);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if mapped.len() > 0 {
+                                std::fs::create_dir_all(maps_dir.clone())?;
+                                let filename = maps_dir
+                                    .join(basename_for_font(font_id, &base_font_name) + ".toml");
+                                println!(
+                                    "Creating file {:?} for Font {:?} ({}) with {} mappings",
+                                    filename,
+                                    font_id,
+                                    base_font_name,
+                                    mapped.len()
+                                );
+                                let toml_string = toml::to_string(&mapped)?;
+                                std::fs::write(filename, toml_string)?;
+                            } else {
+                                println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
             println!("Done dumping ToUnicode mappings (if any).");
         }
         Phase::Phase2Fix => {}
     }
 
     let guard = pprof::ProfilerGuard::new(100)?;
-    process_textops_in_doc(
+    /// For each object in `document`, call `process_textops_in_object`.
+    /// The main job is to find, for each page, its resource objects and content streams.
+    fn _process_textops_in_doc(
+        document: &mut lopdf::Document,
+        maps_dir: &std::path::PathBuf,
+        files: &mut TjFiles,
+        phase: &Phase,
+        output_pdf_file: Option<std::path::PathBuf>,
+    ) -> Result<()> {
+        let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
+        let pages = document.get_pages();
+        println!("{} pages in this document", pages.len());
+        for (page_num, page_id) in pages {
+            let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
+            if page_num % 10 == 0 {
+                println!(
+                    "Page number {} has page id {:?} and page resources: {:?} and {:?}",
+                    page_num, page_id, maybe_dict, resource_objects
+                );
+            }
+            let mut fonts = lopdf::Dictionary::new();
+            if let Some(resource_dict) = maybe_dict {
+                if let Ok(f) = resource_dict.get(b"Font") {
+                    fonts.extend(f.as_dict()?);
+                }
+            }
+            for object_id in &resource_objects {
+                let resource = document.get_object(*object_id)?;
+                let dict = resource.as_dict()?;
+                if let Ok(f) = dict.get(b"Font") {
+                    fonts.extend(f.as_dict()?);
+                }
+            }
+            let mut xobjects_dict = lopdf::Dictionary::new();
+            if let Some(resource_dict) = maybe_dict {
+                if let Ok(xd) = resource_dict.get(b"XObject") {
+                    xobjects_dict.extend(xd.as_dict()?);
+                }
+            } else {
+                assert_eq!(resource_objects.len(), 1);
+            }
+            for object_id in &resource_objects {
+                let resource = document.get_object(*object_id)?;
+                let resource_dict = resource.as_dict()?;
+                if let Ok(xd) = resource_dict.get(b"XObject") {
+                    xobjects_dict.extend(xd.as_dict()?);
+                }
+            }
+            // println!("xobjects_dict: {:?}", xobjects_dict);
+
+            let content_streams = document.get_page_contents(page_id);
+            for object_id in content_streams {
+                process_textops_in_object(
+                    document,
+                    object_id,
+                    &fonts,
+                    &xobjects_dict,
+                    maps_dir,
+                    files,
+                    &mut font_glyph_mappings,
+                    phase,
+                )?;
+            }
+        }
+        if let Phase::Phase2Fix = phase {
+            for (k, v) in font_glyph_mappings {
+                let map_filename = format!("map-{}-{}.toml", k.0, k.1);
+                println!("Creating file: {:?}", map_filename);
+                let mut map_for_toml: HashMap<String, String> = HashMap::new();
+                for (glyph_id, text) in v {
+                    map_for_toml.insert(format!("{:04X}", glyph_id), text);
+                }
+                let _ = std::fs::write(map_filename, toml::to_vec(&map_for_toml)?);
+            }
+            if let Some(output_pdf_filename) = output_pdf_file {
+                println!("Creating file: {:?}", output_pdf_filename);
+                document.save(output_pdf_filename)?;
+            } else {
+                todo!()
+            }
+        }
+        Ok(())
+    }
+    _process_textops_in_doc(
         &mut document,
         &opts.maps_dir,
         &mut files,
@@ -70,158 +224,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
-fn dump_tounicode_mappings(document: &lopdf::Document, maps_dir: std::path::PathBuf) -> Result<()> {
-    for (object_id, object) in &document.objects {
-        if let Ok(dict) = object.as_dict() {
-            if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
-                let (base_font_name, font_id) = real_font_id(*object_id, &document)?;
-                // map from glyph id (as 4-digit hex string) to set of codepoints.
-                // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
-                let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
-                let stream = stream_object.as_stream()?;
-                // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
-                if let Ok(content) = stream.decode_content() {
-                    for op in content.operations {
-                        let operator = op.operator;
-                        if operator == "endbfchar" {
-                            for src_and_dst in op.operands.chunks(2) {
-                                assert_eq!(src_and_dst.len(), 2);
-                                let src = from_two_bytes(src_and_dst[0].as_str()?);
-                                let dst = from_two_bytes(src_and_dst[1].as_str()?);
-                                if dst != 0 {
-                                    mapped
-                                        .entry(format!("{:04X}", src))
-                                        .or_default()
-                                        .insert(dst);
-                                }
-                            }
-                        } else if operator == "endbfrange" {
-                            for begin_end_offset in op.operands.chunks(3) {
-                                assert_eq!(begin_end_offset.len(), 3);
-                                let begin = from_two_bytes(begin_end_offset[0].as_str()?);
-                                let end = from_two_bytes(begin_end_offset[1].as_str()?);
-                                let offset = from_two_bytes(begin_end_offset[2].as_str()?);
-                                for src in begin..=end {
-                                    let dst = src - begin + offset;
-                                    if dst != 0 {
-                                        mapped
-                                            .entry(format!("{:04X}", src))
-                                            .or_default()
-                                            .insert(dst);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if mapped.len() > 0 {
-                    std::fs::create_dir_all(maps_dir.clone())?;
-                    let filename =
-                        maps_dir.join(basename_for_font(font_id, &base_font_name) + ".toml");
-                    println!(
-                        "Creating file {:?} for Font {:?} ({}) with {} mappings",
-                        filename,
-                        font_id,
-                        base_font_name,
-                        mapped.len()
-                    );
-                    let toml_string = toml::to_string(&mapped)?;
-                    std::fs::write(filename, toml_string)?;
-                } else {
-                    println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-/// For each object in `document`, call `process_textops_in_object`.
-/// The main job is to find, for each page, its resource objects and content streams.
-fn process_textops_in_doc(
-    document: &mut lopdf::Document,
-    maps_dir: &std::path::PathBuf,
-    files: &mut TjFiles,
-    phase: &Phase,
-    output_pdf_file: Option<std::path::PathBuf>,
-) -> Result<()> {
-    let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
-    let pages = document.get_pages();
-    println!("{} pages in this document", pages.len());
-    for (page_num, page_id) in pages {
-        let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
-        if page_num % 10 == 0 {
-            println!(
-                "Page number {} has page id {:?} and page resources: {:?} and {:?}",
-                page_num, page_id, maybe_dict, resource_objects
-            );
-        }
-        let mut fonts = lopdf::Dictionary::new();
-        if let Some(resource_dict) = maybe_dict {
-            if let Ok(f) = resource_dict.get(b"Font") {
-                fonts.extend(f.as_dict()?);
-            }
-        }
-        for object_id in &resource_objects {
-            let resource = document.get_object(*object_id)?;
-            let dict = resource.as_dict()?;
-            if let Ok(f) = dict.get(b"Font") {
-                fonts.extend(f.as_dict()?);
-            }
-        }
-        let mut xobjects_dict = lopdf::Dictionary::new();
-        if let Some(resource_dict) = maybe_dict {
-            if let Ok(xd) = resource_dict.get(b"XObject") {
-                xobjects_dict.extend(xd.as_dict()?);
-            }
-        } else {
-            assert_eq!(resource_objects.len(), 1);
-        }
-        for object_id in &resource_objects {
-            let resource = document.get_object(*object_id)?;
-            let resource_dict = resource.as_dict()?;
-            if let Ok(xd) = resource_dict.get(b"XObject") {
-                xobjects_dict.extend(xd.as_dict()?);
-            }
-        }
-        // println!("xobjects_dict: {:?}", xobjects_dict);
-
-        let content_streams = document.get_page_contents(page_id);
-        for object_id in content_streams {
-            process_textops_in_object(
-                document,
-                object_id,
-                &fonts,
-                &xobjects_dict,
-                maps_dir,
-                files,
-                &mut font_glyph_mappings,
-                phase,
-            )?;
-        }
-    }
-    if let Phase::Phase2Fix = phase {
-        for (k, v) in font_glyph_mappings {
-            let map_filename = format!("map-{}-{}.toml", k.0, k.1);
-            println!("Creating file: {:?}", map_filename);
-            let mut map_for_toml: HashMap<String, String> = HashMap::new();
-            for (glyph_id, text) in v {
-                map_for_toml.insert(format!("{:04X}", glyph_id), text);
-            }
-            let _ = std::fs::write(map_filename, toml::to_vec(&map_for_toml)?);
-        }
-        if let Some(output_pdf_filename) = output_pdf_file {
-            println!("Creating file: {:?}", output_pdf_filename);
-            document.save(output_pdf_filename)?;
-        } else {
-            todo!()
-        }
-    }
-    Ok(())
-}
-
 /// For each text operator inside `object_id`, calls either `dump_text_operation` or `wrap_text_operation`.
+/// This can call itself, because of the "Do" operator.
 fn process_textops_in_object(
     document: &mut lopdf::Document,
     content_stream_object_id: ObjectId,
@@ -264,11 +268,171 @@ fn process_textops_in_object(
             match phase {
                 // Phase 1: Write to file.
                 Phase::Phase1Dump => {
-                    dump_text_operation(&glyph_ids, &current_font, maps_dir, files)?;
+                    fn _dump_text_operation(
+                        glyph_ids: &Vec<u16>,
+                        current_font: &(String, ObjectId),
+                        maps_dir: &std::path::PathBuf,
+                        files: &mut TjFiles,
+                    ) -> Result<(), std::io::Error> {
+                        let file = files.get_file(maps_dir, current_font.clone());
+                        let glyph_hexes: Vec<String> =
+                            glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
+                        glyph_hexes
+                            .iter()
+                            .for_each(|g| file.write_all(g.as_bytes()).unwrap());
+                        file.write_all(b"\n")
+                    }
+                    _dump_text_operation(&glyph_ids, &current_font, maps_dir, files)?;
                 }
                 Phase::Phase2Fix => {
                     // Phase 2: Wrap the operator in /ActualText.
-                    i = wrap_text_operation(
+
+                    /// Before: content[i] = op.
+                    /// After:
+                    ///         content[i] = BDC [/Span <</ActualText (...)>>]
+                    ///         content[i + 1] = op
+                    ///         content[i + 2] = EMC []
+                    fn _wrap_text_operation(
+                        content: &mut lopdf::content::Content,
+                        i: usize,
+                        current_font: (String, ObjectId),
+                        font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+                        glyph_ids: Vec<u16>,
+                        maps_dir: &std::path::PathBuf,
+                    ) -> Result<usize> {
+                        let mytext = actual_text_for(
+                            &glyph_ids,
+                            current_font,
+                            font_glyph_mappings,
+                            maps_dir,
+                        )?;
+                        let mytext_encoded_for_actualtext = {
+                            /*
+                            In the PDF 1.7 spec, see
+                            •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
+                            •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+                            •   "7.9.2.2 Text String Type" (immediately following the above).
+                             */
+                            let mut bytes: Vec<u8> = vec![254, 255];
+                            for usv in mytext.encode_utf16() {
+                                let two_bytes = usv.to_be_bytes();
+                                assert_eq!(two_bytes.len(), 2);
+                                for byte in &two_bytes {
+                                    bytes.push(*byte);
+                                }
+                            }
+                            bytes
+                        };
+                        let dict = lopdf::dictionary!(
+                        "ActualText" =>
+                            lopdf::Object::String(mytext_encoded_for_actualtext, lopdf::StringFormat::Hexadecimal));
+                        content.operations.insert(
+                            i,
+                            lopdf::content::Operation::new(
+                                "BDC",
+                                vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
+                            ),
+                        );
+                        content
+                            .operations
+                            .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
+                        return Ok(i + 2);
+
+                        /// The string that be encoded into /ActualText surrounding those glyphs.
+                        fn actual_text_for(
+                            glyph_ids: &[u16],
+                            current_font: (String, ObjectId),
+                            font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+                            maps_dir: &std::path::PathBuf,
+                        ) -> Result<String> {
+                            // println!("Looking up font {:?}", current_font);
+                            if !font_glyph_mappings.contains_key(&current_font.1) {
+                                let tmp =
+                                    get_font_mapping(&current_font.0, current_font.1, maps_dir)?;
+                                font_glyph_mappings.insert(current_font.1, tmp);
+                            }
+                            let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
+
+                            let actual_text_string = glyph_ids
+                                .iter()
+                                .map(|glyph_id| {
+                                    if let Some(v) = current_map.get(glyph_id) {
+                                        v.to_string()
+                                    } else {
+                                        println!(
+                                            "No mapping found for glyph {:04X} in font {}!",
+                                            glyph_id, current_font.0
+                                        );
+                                        println!("Nevermind, enter replacement text now:");
+                                        let replacement: String = text_io::read!("{}\n");
+                                        println!("Thanks, using replacement #{}#", replacement);
+                                        current_map.insert(*glyph_id, replacement.clone());
+                                        replacement
+                                    }
+                                })
+                                .join("");
+                            return Ok(actual_text_string);
+
+                            // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
+                            // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
+                            // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
+                            // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
+                            // // if actual_text_string.contains("<CC") {
+                            // //     println!("Some leftovers in #{}#", actual_text_string);
+                            // // }
+                            // return Ok(actual_text_string.to_string());
+
+                            fn get_font_mapping(
+                                base_font_name: &str,
+                                font_id: ObjectId,
+                                maps_dir: &std::path::PathBuf,
+                            ) -> Result<HashMap<u16, String>> {
+                                // let filename = maps_dir.join(format!(
+                                //     "{}.toml",
+                                //     basename_for_font(font_id, base_font_name)
+                                // ));
+                                let glob_pattern = format!(
+                                    "{}/*{}.toml",
+                                    maps_dir.to_string_lossy(),
+                                    base_font_name
+                                );
+                                println!("For font {:?} = {}, looking for map files matching pattern #{}#", font_id, base_font_name, glob_pattern);
+                                let mut filename = PathBuf::new();
+                                for entry in
+                                    glob::glob(&glob_pattern).expect("Failed to read glob pattern")
+                                {
+                                    match entry {
+                                        Ok(path) => filename = path,
+                                        Err(e) => println!(
+                                            "While trying to match {}: {:?}",
+                                            glob_pattern, e
+                                        ),
+                                    }
+                                }
+                                println!("Trying to read from filename {:?}", filename);
+
+                                #[derive(Deserialize)]
+                                struct Replacements {
+                                    replacement_text: String,
+                                    replacement_codes: Vec<i32>,
+                                    replacement_desc: Vec<String>,
+                                }
+
+                                let m: HashMap<String, Replacements> =
+                                    toml::from_slice(&std::fs::read(filename)?)?;
+                                let mut ret = HashMap::<u16, String>::new();
+                                for (glyph_id_str, replacements) in m {
+                                    ret.insert(
+                                        u16::from_str_radix(&glyph_id_str, 16)?,
+                                        replacements.replacement_text,
+                                    );
+                                }
+                                Ok(ret)
+                            }
+                        }
+                    }
+
+                    i = _wrap_text_operation(
                         content,
                         i,
                         current_font.clone(),
@@ -363,152 +527,6 @@ fn process_textops_in_object(
             .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
             .collect();
         Ok(glyph_ids)
-    }
-}
-
-fn dump_text_operation(
-    glyph_ids: &Vec<u16>,
-    current_font: &(String, ObjectId),
-    maps_dir: &std::path::PathBuf,
-    files: &mut TjFiles,
-) -> Result<(), std::io::Error> {
-    let file = files.get_file(maps_dir, current_font.clone());
-    let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
-    glyph_hexes
-        .iter()
-        .for_each(|g| file.write_all(g.as_bytes()).unwrap());
-    file.write_all(b"\n")
-}
-
-/// Before: content[i] = op.
-/// After:
-///         content[i] = BDC [/Span <</ActualText (...)>>]
-///         content[i + 1] = op
-///         content[i + 2] = EMC []
-fn wrap_text_operation(
-    content: &mut lopdf::content::Content,
-    i: usize,
-    current_font: (String, ObjectId),
-    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-    glyph_ids: Vec<u16>,
-    maps_dir: &std::path::PathBuf,
-) -> Result<usize> {
-    let mytext = actual_text_for(&glyph_ids, current_font, font_glyph_mappings, maps_dir)?;
-    let mytext_encoded_for_actualtext = {
-        /*
-        In the PDF 1.7 spec, see
-        •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
-        •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-        •   "7.9.2.2 Text String Type" (immediately following the above).
-         */
-        let mut bytes: Vec<u8> = vec![254, 255];
-        for usv in mytext.encode_utf16() {
-            let two_bytes = usv.to_be_bytes();
-            assert_eq!(two_bytes.len(), 2);
-            for byte in &two_bytes {
-                bytes.push(*byte);
-            }
-        }
-        bytes
-    };
-    let dict = lopdf::dictionary!(
-        "ActualText" =>
-            lopdf::Object::String(mytext_encoded_for_actualtext, lopdf::StringFormat::Hexadecimal));
-    content.operations.insert(
-        i,
-        lopdf::content::Operation::new(
-            "BDC",
-            vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
-        ),
-    );
-    content
-        .operations
-        .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
-    return Ok(i + 2);
-
-    /// The string that be encoded into /ActualText surrounding those glyphs.
-    fn actual_text_for(
-        glyph_ids: &[u16],
-        current_font: (String, ObjectId),
-        font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-        maps_dir: &std::path::PathBuf,
-    ) -> Result<String> {
-        // println!("Looking up font {:?}", current_font);
-        if !font_glyph_mappings.contains_key(&current_font.1) {
-            let tmp = get_font_mapping(&current_font.0, current_font.1, maps_dir)?;
-            font_glyph_mappings.insert(current_font.1, tmp);
-        }
-        let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
-
-        let actual_text_string = glyph_ids
-            .iter()
-            .map(|glyph_id| {
-                if let Some(v) = current_map.get(glyph_id) {
-                    v.to_string()
-                } else {
-                    println!(
-                        "No mapping found for glyph {:04X} in font {}!",
-                        glyph_id, current_font.0
-                    );
-                    println!("Nevermind, enter replacement text now:");
-                    let replacement: String = text_io::read!("{}\n");
-                    println!("Thanks, using replacement #{}#", replacement);
-                    current_map.insert(*glyph_id, replacement.clone());
-                    replacement
-                }
-            })
-            .join("");
-        return Ok(actual_text_string);
-
-        // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
-        // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
-        // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
-        // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
-        // // if actual_text_string.contains("<CC") {
-        // //     println!("Some leftovers in #{}#", actual_text_string);
-        // // }
-        // return Ok(actual_text_string.to_string());
-
-        fn get_font_mapping(
-            base_font_name: &str,
-            font_id: ObjectId,
-            maps_dir: &std::path::PathBuf,
-        ) -> Result<HashMap<u16, String>> {
-            // let filename = maps_dir.join(format!(
-            //     "{}.toml",
-            //     basename_for_font(font_id, base_font_name)
-            // ));
-            let glob_pattern = format!("{}/*{}.toml", maps_dir.to_string_lossy(), base_font_name);
-            println!(
-                "For font {:?} = {}, looking for map files matching pattern #{}#",
-                font_id, base_font_name, glob_pattern
-            );
-            let mut filename = PathBuf::new();
-            for entry in glob::glob(&glob_pattern).expect("Failed to read glob pattern") {
-                match entry {
-                    Ok(path) => filename = path,
-                    Err(e) => println!("While trying to match {}: {:?}", glob_pattern, e),
-                }
-            }
-            println!("Trying to read from filename {:?}", filename);
-
-            #[derive(Deserialize)]
-            struct Replacements {
-                replacement_text: String,
-                replacement_codes: Vec<i32>,
-                replacement_desc: Vec<String>,
-            }
-
-            let m: HashMap<String, Replacements> = toml::from_slice(&std::fs::read(filename)?)?;
-            let mut ret = HashMap::<u16, String>::new();
-            for (glyph_id_str, replacements) in m {
-                ret.insert(
-                    u16::from_str_radix(&glyph_id_str, 16)?,
-                    replacements.replacement_text,
-                );
-            }
-            Ok(ret)
-        }
     }
 }
 

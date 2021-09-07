@@ -183,12 +183,3 @@ def unicode_codepoints_for_glyph_id(ttx: str):
         new_equivalents[glyph_name] = sequences_for(glyph_name)
 
     return (glyph_name_for_glyph_id, new_equivalents)
-
-
-def normalize(r):
-    a = ''
-    while a != r:
-        a = r
-        b = re.sub(r'(.)<CCsucc>(([क-हक़-य़]़?्)*[क-हक़-य़]़?)', r'\2\1', a)
-        r = re.sub(r'(([क-हक़-य़]़?्)*[क-हक़-य़ऋ][^क-हक़-य़ऋ]*)र्<CCprec>', r'र्\1', b)
-    return r

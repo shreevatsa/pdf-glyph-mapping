@@ -1,3 +1,4 @@
+//! Reads a (TTF) font file, and dumps a bitmap image for each glyph in it.
 use ab_glyph::Font;
 use anyhow::{Context, Result};
 use clap::Clap;
@@ -10,17 +11,17 @@ fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
 
     let file_bytes = &std::fs::read(&filename)?;
     let font = ab_glyph::FontRef::try_from_slice(file_bytes).expect("Error constructing FontRef");
-    println!("{} glyphs in this font.", font.glyph_count());
+    println!("This font has {} glyphs.", font.glyph_count());
 
     /*
     What should we use for position and width for each glyph?
-    We have `min` and `max`, which correspond to something like this:
+    Calling px_bounds() gives `min` and `max`, which correspond to something like this:
 
     min.x, min.y
 
                     max.x, max.y
 
-    Output starts with (0, 0) rather than (min.x, min.y), so we want to translate each point by `shift`.
+    Output starts with (0, 0) rather than (min.x, min.y), so we want to translate each point by some `shift`.
     We need the width and height to be large enough that all of these hold:
             0 <= shift.x + min.x <= shift.x + max.x < w
             0 <= shift.y + min.y <= shift.y + max.y < h
@@ -48,9 +49,9 @@ fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
     assert_ne!(x_max, i32::MIN);
     assert_ne!(y_min, i32::MAX);
     assert_ne!(y_max, i32::MIN);
+    let shift = ab_glyph::point(-x_min as f32, -y_min as f32);
 
     // Second pass: Draw each glyph.
-    let shift = ab_glyph::point(-x_min as f32, -y_min as f32);
     // A common height because the images will be laid out side-by-side and we want their baselines to align.
     let height = shift.y as i32 + y_max + 1;
     for g in 0..font.glyph_count() {
