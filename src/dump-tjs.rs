@@ -180,8 +180,8 @@ fn main() -> Result<()> {
             let content_streams = document.get_page_contents(page_id);
             for object_id in content_streams {
                 process_textops_in_object(
-                    document,
                     object_id,
+                    document,
                     &fonts,
                     &xobjects_dict,
                     maps_dir,
@@ -227,8 +227,8 @@ fn main() -> Result<()> {
 /// For each text operator inside `object_id`, calls either `dump_text_operation` or `wrap_text_operation`.
 /// This can call itself, because of the "Do" operator.
 fn process_textops_in_object(
-    document: &mut lopdf::Document,
     content_stream_object_id: ObjectId,
+    document: &mut lopdf::Document,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
     maps_dir: &std::path::PathBuf,
@@ -473,8 +473,8 @@ fn process_textops_in_object(
                 Err(_) => (&empty_dict, &empty_dict),
             };
             process_textops_in_object(
-                document,
                 object_id,
+                document,
                 &fonts,
                 xobjects_dict,
                 maps_dir,
