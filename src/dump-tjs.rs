@@ -126,7 +126,7 @@ fn main() -> Result<()> {
         Phase::Phase2Fix => {}
     }
 
-    let guard = pprof::ProfilerGuard::new(100)?;
+    // let guard = pprof::ProfilerGuard::new(100)?;
     /// For each object in `document`, call `process_textops_in_object`.
     /// The main job is to find, for each page, its resource objects and content streams.
     fn _process_textops_in_doc(
@@ -217,10 +217,10 @@ fn main() -> Result<()> {
         &opts.phase,
         opts.output_pdf_file,
     )?;
-    if let Ok(report) = guard.report().build() {
-        let file = File::create("flamegraph.svg")?;
-        report.flamegraph(file)?;
-    };
+    // if let Ok(report) = guard.report().build() {
+    //     let file = File::create("flamegraph.svg")?;
+    //     report.flamegraph(file)?;
+    // };
     Ok(())
 }
 
