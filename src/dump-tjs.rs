@@ -237,17 +237,11 @@ fn process_textops_in_object(
     phase: &Phase,
 ) -> Result<()> {
     let mut content: lopdf::content::Content = {
-        let mut content_u8 = Vec::new();
-        if let Ok(content_stream) = document
-            .get_object(content_stream_object_id)
-            .and_then(lopdf::Object::as_stream)
-        {
-            match content_stream.decompressed_content() {
-                Ok(data) => content_u8.write_all(&data)?,
-                Err(_) => content_u8.write_all(&content_stream.content)?,
-            };
-        }
-        lopdf::content::Content::decode(&content_u8)?
+        let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
+        let data_to_decode = content_stream
+            .decompressed_content()
+            .unwrap_or(content_stream.content.clone());
+        lopdf::content::Content::decode(&data_to_decode)?
     };
     // println!("Finding text operators in: {:?}", content);
     let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
@@ -263,7 +257,7 @@ fn process_textops_in_object(
         } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
             let content: &mut lopdf::content::Content = &mut content;
             // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
-            // but for "simple" fonts glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
+            // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
             let glyph_ids = glyph_ids_in_text_operation(content, i)?;
             match phase {
                 // Phase 1: Write to file.
