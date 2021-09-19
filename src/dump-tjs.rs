@@ -29,6 +29,12 @@ fn main() -> Result<()> {
         /// Whether to dump (phase 1) or fix (phase 2).
         #[clap(long)]
         phase: Phase,
+        /// Operate on just a single page (should this take ranges?)
+        #[clap(long)]
+        page: Option<u32>,
+        /// verbose output
+        #[clap(long)]
+        debug: bool,
         /// The directory for either the maps to dump (Phase 1), or maps to read (Phase 2).
         maps_dir: std::path::PathBuf,
         output_pdf_file: Option<std::path::PathBuf>,
@@ -135,13 +141,21 @@ fn main() -> Result<()> {
         files: &mut TjFiles,
         phase: &Phase,
         output_pdf_file: Option<std::path::PathBuf>,
+        chosen_page_number: Option<u32>,
+        debug: bool,
     ) -> Result<()> {
         let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
+        let mut seen_ops = linked_hash_set::LinkedHashSet::new();
         for (page_num, page_id) in pages {
+            if let Some(p) = chosen_page_number {
+                if page_num != p {
+                    continue;
+                };
+            }
             let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
-            if page_num % 10 == 0 {
+            if page_num % 10 == 0 || debug {
                 println!(
                     "Page number {} has page id {:?} and page resources: {:?} and {:?}",
                     page_num, page_id, maybe_dict, resource_objects
@@ -188,9 +202,12 @@ fn main() -> Result<()> {
                     files,
                     &mut font_glyph_mappings,
                     phase,
+                    debug,
+                    &mut seen_ops,
                 )?;
             }
         }
+        println!("Seen the following operators: {:?}", seen_ops);
         if let Phase::Phase2Fix = phase {
             for (k, v) in font_glyph_mappings {
                 let map_filename = format!("map-{}-{}.toml", k.0, k.1);
@@ -216,6 +233,8 @@ fn main() -> Result<()> {
         &mut files,
         &opts.phase,
         opts.output_pdf_file,
+        opts.page,
+        opts.debug,
     )?;
     // if let Ok(report) = guard.report().build() {
     //     let file = File::create("flamegraph.svg")?;
@@ -235,6 +254,8 @@ fn process_textops_in_object(
     files: &mut TjFiles,
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     phase: &Phase,
+    debug: bool,
+    seen_ops: &mut linked_hash_set::LinkedHashSet<String>,
 ) -> Result<()> {
     let mut content: lopdf::content::Content = {
         let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
@@ -243,12 +264,18 @@ fn process_textops_in_object(
             .unwrap_or(content_stream.content.clone());
         lopdf::content::Content::decode(&data_to_decode)?
     };
-    // println!("Finding text operators in: {:?}", content);
+    if debug {
+        println!("Finding text operators in: {:?}", content);
+    }
     let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
         let operator = &op.operator;
+        if debug {
+            println!("Operator: {:?}", operator);
+        }
+        seen_ops.insert(operator.clone());
         if operator == "Tf" {
             let font_name = op.operands[0].as_name_str()?;
             let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
@@ -408,8 +435,8 @@ fn process_textops_in_object(
                                 #[derive(Deserialize)]
                                 struct Replacements {
                                     replacement_text: String,
-                                    replacement_codes: Vec<i32>,
-                                    replacement_desc: Vec<String>,
+                                    _replacement_codes: Vec<i32>,
+                                    _replacement_desc: Vec<String>,
                                 }
 
                                 let m: HashMap<String, Replacements> =
@@ -475,6 +502,8 @@ fn process_textops_in_object(
                 files,
                 font_glyph_mappings,
                 phase,
+                debug,
+                seen_ops,
             )?;
         } else {
             // println!(
