@@ -289,240 +289,252 @@ fn process_textops_in_object(
             println!("Operator: {}", operator);
         }
         *seen_ops.entry(operator.clone()).or_insert(0) += 1;
-        if operator == "Tf" {
-            let font_name = op.operands[0].as_name_str()?;
-            let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
-            // println!("Switching to font {}, which means {:?}", font_name, font_id);
-            current_font = real_font_id(font_id, document)?;
-        } else if ["Tj", "TJ", "'", "\""].contains(&operator.as_str()) {
-            let content: &mut lopdf::content::Content = &mut content;
-            // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
-            // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
-            let glyph_ids = glyph_ids_in_text_operation(content, i)?;
-            match phase {
-                // Phase 1: Write to file.
-                Phase::Phase1Dump => {
-                    fn _dump_text_operation(
-                        glyph_ids: &Vec<u16>,
-                        current_font: &(String, ObjectId),
-                        maps_dir: &std::path::PathBuf,
-                        files: &mut TjFiles,
-                    ) -> Result<(), std::io::Error> {
-                        let file = files.get_file(maps_dir, current_font.clone());
-                        let glyph_hexes: Vec<String> =
-                            glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
-                        glyph_hexes
-                            .iter()
-                            .for_each(|g| file.write_all(g.as_bytes()).unwrap());
-                        file.write_all(b"\n")
+        match operator.as_str() {
+            "Tf" => {
+                let font_name = op.operands[0].as_name_str()?;
+                let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
+                // println!("Switching to font {}, which means {:?}", font_name, font_id);
+                current_font = real_font_id(font_id, document)?;
+            }
+            "Tj" | "TJ" | "'" | "\"" => {
+                let content: &mut lopdf::content::Content = &mut content;
+                // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
+                // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
+                let glyph_ids = glyph_ids_in_text_operation(content, i)?;
+                match phase {
+                    // Phase 1: Write to file.
+                    Phase::Phase1Dump => {
+                        fn _dump_text_operation(
+                            glyph_ids: &Vec<u16>,
+                            current_font: &(String, ObjectId),
+                            maps_dir: &std::path::PathBuf,
+                            files: &mut TjFiles,
+                        ) -> Result<(), std::io::Error> {
+                            let file = files.get_file(maps_dir, current_font.clone());
+                            let glyph_hexes: Vec<String> =
+                                glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
+                            glyph_hexes
+                                .iter()
+                                .for_each(|g| file.write_all(g.as_bytes()).unwrap());
+                            file.write_all(b"\n")
+                        }
+                        _dump_text_operation(&glyph_ids, &current_font, maps_dir, files)?;
                     }
-                    _dump_text_operation(&glyph_ids, &current_font, maps_dir, files)?;
-                }
-                Phase::Phase2Fix => {
-                    // Phase 2: Wrap the operator in /ActualText.
+                    Phase::Phase2Fix => {
+                        // Phase 2: Wrap the operator in /ActualText.
 
-                    /// Before: content[i] = op.
-                    /// After:
-                    ///         content[i] = BDC [/Span <</ActualText (...)>>]
-                    ///         content[i + 1] = op
-                    ///         content[i + 2] = EMC []
-                    fn _wrap_text_operation(
-                        content: &mut lopdf::content::Content,
-                        i: usize,
-                        current_font: (String, ObjectId),
-                        font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-                        glyph_ids: Vec<u16>,
-                        maps_dir: &std::path::PathBuf,
-                    ) -> Result<usize> {
-                        let mytext = actual_text_for(
-                            &glyph_ids,
-                            current_font,
-                            font_glyph_mappings,
-                            maps_dir,
-                        )?;
-                        let mytext_encoded_for_actualtext = {
-                            /*
-                            In the PDF 1.7 spec, see
-                            •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
-                            •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-                            •   "7.9.2.2 Text String Type" (immediately following the above).
-                             */
-                            let mut bytes: Vec<u8> = vec![254, 255];
-                            for usv in mytext.encode_utf16() {
-                                let two_bytes = usv.to_be_bytes();
-                                assert_eq!(two_bytes.len(), 2);
-                                for byte in &two_bytes {
-                                    bytes.push(*byte);
-                                }
-                            }
-                            bytes
-                        };
-                        let dict = lopdf::dictionary!(
-                        "ActualText" =>
-                            lopdf::Object::String(mytext_encoded_for_actualtext, lopdf::StringFormat::Hexadecimal));
-                        content.operations.insert(
-                            i,
-                            lopdf::content::Operation::new(
-                                "BDC",
-                                vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
-                            ),
-                        );
-                        content
-                            .operations
-                            .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
-                        return Ok(i + 2);
-
-                        /// The string that be encoded into /ActualText surrounding those glyphs.
-                        fn actual_text_for(
-                            glyph_ids: &[u16],
+                        /// Before: content[i] = op.
+                        /// After:
+                        ///         content[i] = BDC [/Span <</ActualText (...)>>]
+                        ///         content[i + 1] = op
+                        ///         content[i + 2] = EMC []
+                        fn _wrap_text_operation(
+                            content: &mut lopdf::content::Content,
+                            i: usize,
                             current_font: (String, ObjectId),
                             font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
+                            glyph_ids: Vec<u16>,
                             maps_dir: &std::path::PathBuf,
-                        ) -> Result<String> {
-                            // println!("Looking up font {:?}", current_font);
-                            if !font_glyph_mappings.contains_key(&current_font.1) {
-                                let tmp =
-                                    get_font_mapping(&current_font.0, current_font.1, maps_dir)?;
-                                font_glyph_mappings.insert(current_font.1, tmp);
-                            }
-                            let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
-
-                            let actual_text_string = glyph_ids
-                                .iter()
-                                .map(|glyph_id| {
-                                    if let Some(v) = current_map.get(glyph_id) {
-                                        v.to_string()
-                                    } else {
-                                        println!(
-                                            "No mapping found for glyph {:04X} in font {}!",
-                                            glyph_id, current_font.0
-                                        );
-                                        println!("Nevermind, enter replacement text now:");
-                                        let replacement: String = text_io::read!("{}\n");
-                                        println!("Thanks, using replacement #{}#", replacement);
-                                        current_map.insert(*glyph_id, replacement.clone());
-                                        replacement
+                        ) -> Result<usize> {
+                            let mytext = actual_text_for(
+                                &glyph_ids,
+                                current_font,
+                                font_glyph_mappings,
+                                maps_dir,
+                            )?;
+                            let mytext_encoded_for_actualtext = {
+                                /*
+                                In the PDF 1.7 spec, see
+                                •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
+                                •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+                                •   "7.9.2.2 Text String Type" (immediately following the above).
+                                 */
+                                let mut bytes: Vec<u8> = vec![254, 255];
+                                for usv in mytext.encode_utf16() {
+                                    let two_bytes = usv.to_be_bytes();
+                                    assert_eq!(two_bytes.len(), 2);
+                                    for byte in &two_bytes {
+                                        bytes.push(*byte);
                                     }
-                                })
-                                .join("");
-                            return Ok(actual_text_string);
+                                }
+                                bytes
+                            };
+                            let dict = lopdf::dictionary!(
+                            "ActualText" =>
+                                lopdf::Object::String(mytext_encoded_for_actualtext, lopdf::StringFormat::Hexadecimal));
+                            content.operations.insert(
+                                i,
+                                lopdf::content::Operation::new(
+                                    "BDC",
+                                    vec![
+                                        lopdf::Object::from("Span"),
+                                        lopdf::Object::Dictionary(dict),
+                                    ],
+                                ),
+                            );
+                            content
+                                .operations
+                                .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
+                            return Ok(i + 2);
 
-                            // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
-                            // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
-                            // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
-                            // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
-                            // // if actual_text_string.contains("<CC") {
-                            // //     println!("Some leftovers in #{}#", actual_text_string);
-                            // // }
-                            // return Ok(actual_text_string.to_string());
-
-                            fn get_font_mapping(
-                                base_font_name: &str,
-                                font_id: ObjectId,
+                            /// The string that be encoded into /ActualText surrounding those glyphs.
+                            fn actual_text_for(
+                                glyph_ids: &[u16],
+                                current_font: (String, ObjectId),
+                                font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
                                 maps_dir: &std::path::PathBuf,
-                            ) -> Result<HashMap<u16, String>> {
-                                // let filename = maps_dir.join(format!(
-                                //     "{}.toml",
-                                //     basename_for_font(font_id, base_font_name)
-                                // ));
-                                let glob_pattern = format!(
-                                    "{}/*{}.toml",
-                                    maps_dir.to_string_lossy(),
-                                    base_font_name
-                                );
-                                println!("For font {:?} = {}, looking for map files matching pattern #{}#", font_id, base_font_name, glob_pattern);
-                                let mut filename = PathBuf::new();
-                                for entry in
-                                    glob::glob(&glob_pattern).expect("Failed to read glob pattern")
-                                {
-                                    match entry {
-                                        Ok(path) => filename = path,
-                                        Err(e) => println!(
-                                            "While trying to match {}: {:?}",
-                                            glob_pattern, e
-                                        ),
-                                    }
+                            ) -> Result<String> {
+                                // println!("Looking up font {:?}", current_font);
+                                if !font_glyph_mappings.contains_key(&current_font.1) {
+                                    let tmp = get_font_mapping(
+                                        &current_font.0,
+                                        current_font.1,
+                                        maps_dir,
+                                    )?;
+                                    font_glyph_mappings.insert(current_font.1, tmp);
                                 }
-                                println!("Trying to read from filename {:?}", filename);
+                                let current_map =
+                                    font_glyph_mappings.get_mut(&current_font.1).unwrap();
 
-                                #[derive(Deserialize)]
-                                struct Replacements {
-                                    replacement_text: String,
-                                    _replacement_codes: Vec<i32>,
-                                    _replacement_desc: Vec<String>,
-                                }
+                                let actual_text_string = glyph_ids
+                                    .iter()
+                                    .map(|glyph_id| {
+                                        if let Some(v) = current_map.get(glyph_id) {
+                                            v.to_string()
+                                        } else {
+                                            println!(
+                                                "No mapping found for glyph {:04X} in font {}!",
+                                                glyph_id, current_font.0
+                                            );
+                                            println!("Nevermind, enter replacement text now:");
+                                            let replacement: String = text_io::read!("{}\n");
+                                            println!("Thanks, using replacement #{}#", replacement);
+                                            current_map.insert(*glyph_id, replacement.clone());
+                                            replacement
+                                        }
+                                    })
+                                    .join("");
+                                return Ok(actual_text_string);
 
-                                let m: HashMap<String, Replacements> =
-                                    toml::from_slice(&std::fs::read(filename)?)?;
-                                let mut ret = HashMap::<u16, String>::new();
-                                for (glyph_id_str, replacements) in m {
-                                    ret.insert(
-                                        u16::from_str_radix(&glyph_id_str, 16)?,
-                                        replacements.replacement_text,
+                                // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
+                                // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
+                                // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
+                                // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
+                                // // if actual_text_string.contains("<CC") {
+                                // //     println!("Some leftovers in #{}#", actual_text_string);
+                                // // }
+                                // return Ok(actual_text_string.to_string());
+
+                                fn get_font_mapping(
+                                    base_font_name: &str,
+                                    font_id: ObjectId,
+                                    maps_dir: &std::path::PathBuf,
+                                ) -> Result<HashMap<u16, String>> {
+                                    // let filename = maps_dir.join(format!(
+                                    //     "{}.toml",
+                                    //     basename_for_font(font_id, base_font_name)
+                                    // ));
+                                    let glob_pattern = format!(
+                                        "{}/*{}.toml",
+                                        maps_dir.to_string_lossy(),
+                                        base_font_name
                                     );
+                                    println!("For font {:?} = {}, looking for map files matching pattern #{}#", font_id, base_font_name, glob_pattern);
+                                    let mut filename = PathBuf::new();
+                                    for entry in glob::glob(&glob_pattern)
+                                        .expect("Failed to read glob pattern")
+                                    {
+                                        match entry {
+                                            Ok(path) => filename = path,
+                                            Err(e) => println!(
+                                                "While trying to match {}: {:?}",
+                                                glob_pattern, e
+                                            ),
+                                        }
+                                    }
+                                    println!("Trying to read from filename {:?}", filename);
+
+                                    #[derive(Deserialize)]
+                                    struct Replacements {
+                                        replacement_text: String,
+                                        _replacement_codes: Vec<i32>,
+                                        _replacement_desc: Vec<String>,
+                                    }
+
+                                    let m: HashMap<String, Replacements> =
+                                        toml::from_slice(&std::fs::read(filename)?)?;
+                                    let mut ret = HashMap::<u16, String>::new();
+                                    for (glyph_id_str, replacements) in m {
+                                        ret.insert(
+                                            u16::from_str_radix(&glyph_id_str, 16)?,
+                                            replacements.replacement_text,
+                                        );
+                                    }
+                                    Ok(ret)
                                 }
-                                Ok(ret)
                             }
                         }
-                    }
 
-                    i = _wrap_text_operation(
-                        content,
-                        i,
-                        current_font.clone(),
-                        font_glyph_mappings,
-                        glyph_ids,
-                        maps_dir,
-                    )?
-                }
-            };
-            let obj = document.get_object_mut(content_stream_object_id)?;
-            let stream = obj.as_stream_mut()?;
-            stream.set_content(content.encode()?);
-        } else if operator == "Do" {
-            assert_eq!(op.operands.len(), 1);
-            let name = &op.operands[0].as_name_str()?;
-            let (object_id, stream) = {
-                let mut object = xobjects_dict.get(name.as_bytes())?;
-                let mut id = (0, 0);
-                while let Ok(ref_id) = object.as_reference() {
-                    id = ref_id;
-                    object = document.objects.get(&ref_id).unwrap();
-                }
-                (id, object.as_stream()?.clone())
-            };
-            // TODO: Use an Option<Dictionary> instead of allocating a new one.
-            let empty_dict = lopdf::Dictionary::new();
-            let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
-                Ok(value) => {
-                    let resources_dict = value.as_dict()?;
-                    (
-                        resources_dict.get(b"Font")?.as_dict()?,
-                        match resources_dict.get(b"XObject") {
-                            Ok(rd) => rd.as_dict()?,
-                            Err(_) => &empty_dict,
-                        },
-                    )
-                }
-                Err(_) => (&empty_dict, &empty_dict),
-            };
-            process_textops_in_object(
-                object_id,
-                document,
-                &fonts,
-                xobjects_dict,
-                maps_dir,
-                files,
-                font_glyph_mappings,
-                phase,
-                debug_depth + 1,
-                seen_ops,
-            )?;
-        } else {
-            // println!(
-            //     "Not a text-showing operator: {} {:?}",
-            //     &operator, op.operands
-            // );
+                        i = _wrap_text_operation(
+                            content,
+                            i,
+                            current_font.clone(),
+                            font_glyph_mappings,
+                            glyph_ids,
+                            maps_dir,
+                        )?
+                    }
+                };
+                let obj = document.get_object_mut(content_stream_object_id)?;
+                let stream = obj.as_stream_mut()?;
+                stream.set_content(content.encode()?);
+            }
+            "Do" => {
+                assert_eq!(op.operands.len(), 1);
+                let name = &op.operands[0].as_name_str()?;
+                let (object_id, stream) = {
+                    let mut object = xobjects_dict.get(name.as_bytes())?;
+                    let mut id = (0, 0);
+                    while let Ok(ref_id) = object.as_reference() {
+                        id = ref_id;
+                        object = document.objects.get(&ref_id).unwrap();
+                    }
+                    (id, object.as_stream()?.clone())
+                };
+                // TODO: Use an Option<Dictionary> instead of allocating a new one.
+                let empty_dict = lopdf::Dictionary::new();
+                let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
+                    Ok(value) => {
+                        let resources_dict = value.as_dict()?;
+                        (
+                            resources_dict.get(b"Font")?.as_dict()?,
+                            match resources_dict.get(b"XObject") {
+                                Ok(rd) => rd.as_dict()?,
+                                Err(_) => &empty_dict,
+                            },
+                        )
+                    }
+                    Err(_) => (&empty_dict, &empty_dict),
+                };
+                process_textops_in_object(
+                    object_id,
+                    document,
+                    &fonts,
+                    xobjects_dict,
+                    maps_dir,
+                    files,
+                    font_glyph_mappings,
+                    phase,
+                    debug_depth + 1,
+                    seen_ops,
+                )?;
+            }
+            _ => {
+                // println!(
+                //     "Not a text-showing operator: {} {:?}",
+                //     &operator, op.operands
+                // );
+            }
         }
         i += 1;
     }
