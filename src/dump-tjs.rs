@@ -14,6 +14,16 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+macro_rules! indent {
+    ($depth:ident) => {
+        print!(
+            "{}",
+            // https://stackoverflow.com/questions/35280798/printing-a-character-a-variable-number-of-times-with-println
+            std::iter::repeat("    ").take($depth).collect::<String>()
+        );
+    };
+}
+
 enum Phase {
     Phase1Dump,
     Phase2Fix,
@@ -142,12 +152,12 @@ fn main() -> Result<()> {
         phase: &Phase,
         output_pdf_file: Option<std::path::PathBuf>,
         chosen_page_number: Option<u32>,
-        debug: bool,
+        debug_depth: usize,
     ) -> Result<()> {
         let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
-        let mut seen_ops = linked_hash_set::LinkedHashSet::new();
+        let mut seen_ops = linked_hash_map::LinkedHashMap::new();
         for (page_num, page_id) in pages {
             if let Some(p) = chosen_page_number {
                 if page_num != p {
@@ -155,7 +165,7 @@ fn main() -> Result<()> {
                 };
             }
             let (maybe_dict, resource_objects) = document.get_page_resources(page_id);
-            if page_num % 10 == 0 || debug {
+            if page_num % 10 == 0 || debug_depth > 0 {
                 println!(
                     "Page number {} has page id {:?} and page resources: {:?} and {:?}",
                     page_num, page_id, maybe_dict, resource_objects
@@ -202,7 +212,7 @@ fn main() -> Result<()> {
                     files,
                     &mut font_glyph_mappings,
                     phase,
-                    debug,
+                    debug_depth + 1,
                     &mut seen_ops,
                 )?;
             }
@@ -234,7 +244,7 @@ fn main() -> Result<()> {
         &opts.phase,
         opts.output_pdf_file,
         opts.page,
-        opts.debug,
+        opts.debug as usize,
     )?;
     // if let Ok(report) = guard.report().build() {
     //     let file = File::create("flamegraph.svg")?;
@@ -254,8 +264,8 @@ fn process_textops_in_object(
     files: &mut TjFiles,
     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     phase: &Phase,
-    debug: bool,
-    seen_ops: &mut linked_hash_set::LinkedHashSet<String>,
+    debug_depth: usize,
+    seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
 ) -> Result<()> {
     let mut content: lopdf::content::Content = {
         let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
@@ -264,18 +274,21 @@ fn process_textops_in_object(
             .unwrap_or(content_stream.content.clone());
         lopdf::content::Content::decode(&data_to_decode)?
     };
-    if debug {
-        println!("Finding text operators in: {:?}", content);
+    if debug_depth > 0 {
+        indent!(debug_depth);
+        // println!("Finding text operators in: {:?}", content);
+        println!("Finding text ops among {} ops.", content.operations.len(),);
     }
     let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
         let operator = &op.operator;
-        if debug {
-            println!("Operator: {:?}", operator);
+        if debug_depth > 0 {
+            indent!(debug_depth);
+            println!("Operator: {}", operator);
         }
-        seen_ops.insert(operator.clone());
+        *seen_ops.entry(operator.clone()).or_insert(0) += 1;
         if operator == "Tf" {
             let font_name = op.operands[0].as_name_str()?;
             let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
@@ -502,7 +515,7 @@ fn process_textops_in_object(
                 files,
                 font_glyph_mappings,
                 phase,
-                debug,
+                debug_depth + 1,
                 seen_ops,
             )?;
         } else {
