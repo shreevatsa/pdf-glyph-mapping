@@ -212,7 +212,7 @@ fn main() -> Result<()> {
                     files,
                     &mut font_glyph_mappings,
                     phase,
-                    if debug_depth > 0 { debug_depth + 1 } else { 0 },
+                    debug_depth + (debug_depth > 0) as usize,
                     &mut seen_ops,
                 )?;
             }
@@ -481,8 +481,8 @@ fn process_textops_in_object(
                                     #[derive(Deserialize)]
                                     struct Replacements {
                                         replacement_text: String,
-                                        _replacement_codes: Vec<i32>,
-                                        _replacement_desc: Vec<String>,
+                                        replacement_codes: Vec<i32>,
+                                        replacement_desc: Vec<String>,
                                     }
 
                                     let m: HashMap<String, Replacements> =
@@ -551,7 +551,7 @@ fn process_textops_in_object(
                     files,
                     font_glyph_mappings,
                     phase,
-                    debug_depth + 1,
+                    debug_depth + (debug_depth > 0) as usize,
                     seen_ops,
                 )?;
             }
