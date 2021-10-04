@@ -36,7 +36,7 @@ $(ORIG_PDF):
 fonts/: ${ORIG_PDF}
 	sh mutool-extract.sh ${ORIG_PDF}
 
-# ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml} (but for now, Tjs-N)
+# ORIG.pdf  ---[dump-tjs]--->  font-usage/font-N.{Tjs,toml}
 font-usage/: ${ORIG_PDF}
 	RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase phase1
 

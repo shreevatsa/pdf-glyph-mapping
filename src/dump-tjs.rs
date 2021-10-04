@@ -212,7 +212,7 @@ fn main() -> Result<()> {
                     files,
                     &mut font_glyph_mappings,
                     phase,
-                    debug_depth + 1,
+                    if debug_depth > 0 { debug_depth + 1 } else { 0 },
                     &mut seen_ops,
                 )?;
             }
@@ -280,6 +280,7 @@ fn process_textops_in_object(
         println!("Finding text ops among {} ops.", content.operations.len(),);
     }
     let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
+    let mut current_tm_c = 0.0; // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
@@ -290,12 +291,26 @@ fn process_textops_in_object(
         }
         *seen_ops.entry(operator.clone()).or_insert(0) += 1;
         match operator.as_str() {
+            // Setting a new font.
             "Tf" => {
                 let font_name = op.operands[0].as_name_str()?;
                 let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
                 // println!("Switching to font {}, which means {:?}", font_name, font_id);
                 current_font = real_font_id(font_id, document)?;
             }
+            // Setting font matrix.
+            "Tm" => {
+                assert_eq!(op.operands.len(), 6);
+                current_tm_c = match op.operands[2].as_f64() {
+                    Ok(n) => n,
+                    Err(_) => op.operands[2].as_i64()? as f64,
+                };
+                if debug_depth > 0 {
+                    indent!(debug_depth);
+                    println!("slant is now: {} from {:?}", current_tm_c, op.operands);
+                }
+            }
+            // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 let content: &mut lopdf::content::Content = &mut content;
                 // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
@@ -332,6 +347,7 @@ fn process_textops_in_object(
                             content: &mut lopdf::content::Content,
                             i: usize,
                             current_font: (String, ObjectId),
+                            current_tm_c: f64,
                             font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
                             glyph_ids: Vec<u16>,
                             maps_dir: &std::path::PathBuf,
@@ -339,9 +355,11 @@ fn process_textops_in_object(
                             let mytext = actual_text_for(
                                 &glyph_ids,
                                 current_font,
+                                current_tm_c,
                                 font_glyph_mappings,
                                 maps_dir,
                             )?;
+                            // Encode `mytext` into the encoding PDF expects for ActualText.
                             let mytext_encoded_for_actualtext = {
                                 /*
                                 In the PDF 1.7 spec, see
@@ -360,8 +378,9 @@ fn process_textops_in_object(
                                 bytes
                             };
                             let dict = lopdf::dictionary!(
-                            "ActualText" =>
-                                lopdf::Object::String(mytext_encoded_for_actualtext, lopdf::StringFormat::Hexadecimal));
+                                "ActualText" => lopdf::Object::String(
+                                    mytext_encoded_for_actualtext,
+                                    lopdf::StringFormat::Hexadecimal));
                             content.operations.insert(
                                 i,
                                 lopdf::content::Operation::new(
@@ -381,6 +400,7 @@ fn process_textops_in_object(
                             fn actual_text_for(
                                 glyph_ids: &[u16],
                                 current_font: (String, ObjectId),
+                                current_tm_c: f64,
                                 font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
                                 maps_dir: &std::path::PathBuf,
                             ) -> Result<String> {
@@ -414,7 +434,11 @@ fn process_textops_in_object(
                                         }
                                     })
                                     .join("");
-                                return Ok(actual_text_string);
+                                return if current_tm_c > 0.0 {
+                                    Ok("[sl]".to_owned() + &actual_text_string + "[/sl]")
+                                } else {
+                                    Ok(actual_text_string)
+                                };
 
                                 // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
                                 // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
@@ -479,6 +503,7 @@ fn process_textops_in_object(
                             content,
                             i,
                             current_font.clone(),
+                            current_tm_c,
                             font_glyph_mappings,
                             glyph_ids,
                             maps_dir,
@@ -489,6 +514,7 @@ fn process_textops_in_object(
                 let stream = obj.as_stream_mut()?;
                 stream.set_content(content.encode()?);
             }
+            // "Invoke named XObject" (chase the reference; "do" it).
             "Do" => {
                 assert_eq!(op.operands.len(), 1);
                 let name = &op.operands[0].as_name_str()?;
@@ -529,6 +555,7 @@ fn process_textops_in_object(
                     seen_ops,
                 )?;
             }
+            // None of the cases we care about.
             _ => {
                 // println!(
                 //     "Not a text-showing operator: {} {:?}",
