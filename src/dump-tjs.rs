@@ -434,6 +434,11 @@ fn process_textops_in_object(
                                         }
                                     })
                                     .join("");
+                                // Hack: Surround the ActualText with the font name. Better would be to do this in the equivalent of `pdftotext`.
+                                let actual_text_string = format!(
+                                    "[{}]{}[/{}]",
+                                    current_font.0, actual_text_string, current_font.0
+                                );
                                 return if current_tm_c > 0.0 {
                                     Ok("[sl]".to_owned() + &actual_text_string + "[/sl]")
                                 } else {
