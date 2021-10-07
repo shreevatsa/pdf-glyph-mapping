@@ -535,6 +535,9 @@ fn process_textops_in_object(
                                         toml::from_slice(&std::fs::read(filename)?)?;
                                     let mut ret = HashMap::<u16, String>::new();
                                     for (glyph_id_str, replacements) in m {
+                                        // Silence warning
+                                        let _replacement_codes = replacements.replacement_codes;
+                                        let _replacement_desc = replacements.replacement_desc;
                                         ret.insert(
                                             u16::from_str_radix(&glyph_id_str, 16)?,
                                             replacements.replacement_text,
