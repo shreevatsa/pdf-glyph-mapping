@@ -291,6 +291,47 @@ fn process_textops_in_object(
         }
         *seen_ops.entry(operator.clone()).or_insert(0) += 1;
         match operator.as_str() {
+            // "Invoke named XObject" (chase the reference; "do" it).
+            "Do" => {
+                assert_eq!(op.operands.len(), 1);
+                let name = &op.operands[0].as_name_str()?;
+                let (object_id, stream) = {
+                    let mut object = xobjects_dict.get(name.as_bytes())?;
+                    let mut id = (0, 0);
+                    while let Ok(ref_id) = object.as_reference() {
+                        id = ref_id;
+                        object = document.objects.get(&ref_id).unwrap();
+                    }
+                    (id, object.as_stream()?.clone())
+                };
+                // TODO: Use an Option<Dictionary> instead of allocating a new one.
+                let empty_dict = lopdf::Dictionary::new();
+                let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
+                    Ok(value) => {
+                        let resources_dict = value.as_dict()?;
+                        (
+                            resources_dict.get(b"Font")?.as_dict()?,
+                            match resources_dict.get(b"XObject") {
+                                Ok(rd) => rd.as_dict()?,
+                                Err(_) => &empty_dict,
+                            },
+                        )
+                    }
+                    Err(_) => (&empty_dict, &empty_dict),
+                };
+                process_textops_in_object(
+                    object_id,
+                    document,
+                    &fonts,
+                    xobjects_dict,
+                    maps_dir,
+                    files,
+                    font_glyph_mappings,
+                    phase,
+                    debug_depth + (debug_depth > 0) as usize,
+                    seen_ops,
+                )?;
+            }
             // Setting a new font.
             "Tf" => {
                 let font_name = op.operands[0].as_name_str()?;
@@ -518,47 +559,6 @@ fn process_textops_in_object(
                 let obj = document.get_object_mut(content_stream_object_id)?;
                 let stream = obj.as_stream_mut()?;
                 stream.set_content(content.encode()?);
-            }
-            // "Invoke named XObject" (chase the reference; "do" it).
-            "Do" => {
-                assert_eq!(op.operands.len(), 1);
-                let name = &op.operands[0].as_name_str()?;
-                let (object_id, stream) = {
-                    let mut object = xobjects_dict.get(name.as_bytes())?;
-                    let mut id = (0, 0);
-                    while let Ok(ref_id) = object.as_reference() {
-                        id = ref_id;
-                        object = document.objects.get(&ref_id).unwrap();
-                    }
-                    (id, object.as_stream()?.clone())
-                };
-                // TODO: Use an Option<Dictionary> instead of allocating a new one.
-                let empty_dict = lopdf::Dictionary::new();
-                let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
-                    Ok(value) => {
-                        let resources_dict = value.as_dict()?;
-                        (
-                            resources_dict.get(b"Font")?.as_dict()?,
-                            match resources_dict.get(b"XObject") {
-                                Ok(rd) => rd.as_dict()?,
-                                Err(_) => &empty_dict,
-                            },
-                        )
-                    }
-                    Err(_) => (&empty_dict, &empty_dict),
-                };
-                process_textops_in_object(
-                    object_id,
-                    document,
-                    &fonts,
-                    xobjects_dict,
-                    maps_dir,
-                    files,
-                    font_glyph_mappings,
-                    phase,
-                    debug_depth + (debug_depth > 0) as usize,
-                    seen_ops,
-                )?;
             }
             // None of the cases we care about.
             _ => {
