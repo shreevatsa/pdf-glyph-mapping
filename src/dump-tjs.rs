@@ -353,10 +353,9 @@ fn process_textops_in_object(
             }
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
-                let content: &mut lopdf::content::Content = &mut content;
                 // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
                 // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
-                let glyph_ids = glyph_ids_in_text_operation(content, i)?;
+                let glyph_ids = glyph_ids_in_text_operation(op)?;
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
@@ -549,19 +548,19 @@ fn process_textops_in_object(
                         }
 
                         i = _wrap_text_operation(
-                            content,
+                            &mut content,
                             i,
                             current_font.clone(),
                             current_tm_c,
                             font_glyph_mappings,
                             glyph_ids,
                             maps_dir,
-                        )?
+                        )?;
+                        let obj = document.get_object_mut(content_stream_object_id)?;
+                        let stream = obj.as_stream_mut()?;
+                        stream.set_content(content.encode()?);
                     }
                 };
-                let obj = document.get_object_mut(content_stream_object_id)?;
-                let stream = obj.as_stream_mut()?;
-                stream.set_content(content.encode()?);
             }
             // None of the cases we care about.
             _ => {
@@ -575,11 +574,7 @@ fn process_textops_in_object(
     }
     return Ok(());
 
-    fn glyph_ids_in_text_operation(
-        content: &mut lopdf::content::Content,
-        i: usize,
-    ) -> Result<Vec<u16>> {
-        let op = &content.operations[i];
+    fn glyph_ids_in_text_operation(op: &lopdf::content::Operation) -> Result<Vec<u16>> {
         let operator = &op.operator;
         let mut bytes: Vec<u8> = Vec::new();
         let text: &[u8] = if operator == "Tj" || operator == "'" {
