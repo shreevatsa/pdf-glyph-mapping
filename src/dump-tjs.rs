@@ -395,7 +395,7 @@ fn process_textops_in_object(
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
-                        let file = files.get_file(maps_dir, current_font.clone());
+                        let file = files.get_file(maps_dir, &current_font);
                         let glyph_hexes: Vec<String> =
                             glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
                         glyph_hexes
@@ -414,7 +414,7 @@ fn process_textops_in_object(
                         fn _wrap_text_operation(
                             content: &mut lopdf::content::Content,
                             i: usize,
-                            current_font: (String, ObjectId),
+                            current_font: &(String, ObjectId),
                             current_tm_c: f64,
                             font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
                             glyph_ids: Vec<u16>,
@@ -467,7 +467,7 @@ fn process_textops_in_object(
                             /// The string that be encoded into /ActualText surrounding those glyphs.
                             fn actual_text_for(
                                 glyph_ids: &[u16],
-                                current_font: (String, ObjectId),
+                                current_font: &(String, ObjectId),
                                 current_tm_c: f64,
                                 font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
                                 maps_dir: &std::path::PathBuf,
@@ -578,7 +578,7 @@ fn process_textops_in_object(
                         i = _wrap_text_operation(
                             &mut content,
                             i,
-                            current_font.clone(),
+                            &current_font,
                             current_tm_c,
                             font_glyph_mappings,
                             glyph_ids,
@@ -613,7 +613,7 @@ impl TjFiles {
     fn get_file(
         &mut self,
         maps_dir: &std::path::PathBuf,
-        font_id: (String, ObjectId),
+        font_id: &(String, ObjectId),
     ) -> &mut File {
         self.file.entry(font_id.1).or_insert_with(|| {
             let filename = std::path::Path::new(maps_dir)
