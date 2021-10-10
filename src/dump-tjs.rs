@@ -26,6 +26,18 @@ macro_rules! indent {
 
 struct TextState {
     current_font: (String, ObjectId),
+    // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
+    current_tm_c: f64,
+}
+
+impl TextState {
+    fn process_tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
+    where
+        F: FnOnce(&str) -> (String, ObjectId),
+    {
+        let font_name = op.operands[0].as_name_str().unwrap();
+        self.current_font = get_font_from_name(font_name);
+    }
 }
 
 enum Phase {
@@ -294,8 +306,8 @@ fn process_textops_in_object(
     }
     let mut text_state = TextState {
         current_font: ("".to_string(), (0, 0)),
+        current_tm_c: 0.0,
     };
-    let mut current_tm_c = 0.0; // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
@@ -348,22 +360,28 @@ fn process_textops_in_object(
                 )?;
             }
             // Setting a new font.
-            "Tf" => {
-                let font_name = op.operands[0].as_name_str()?;
-                let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
+            "Tf" => text_state.process_tf(op, |font_name: &str| {
+                let font_id = fonts
+                    .get(font_name.as_bytes())
+                    .unwrap()
+                    .as_reference()
+                    .unwrap();
                 // println!("Switching to font {}, which means {:?}", font_name, font_id);
-                text_state.current_font = real_font_id(font_id, document)?;
-            }
+                real_font_id(font_id, document).unwrap()
+            }),
             // Setting font matrix.
             "Tm" => {
                 assert_eq!(op.operands.len(), 6);
-                current_tm_c = match op.operands[2].as_f64() {
+                text_state.current_tm_c = match op.operands[2].as_f64() {
                     Ok(n) => n,
                     Err(_) => op.operands[2].as_i64()? as f64,
                 };
                 if debug_depth > 0 {
                     indent!(debug_depth);
-                    println!("slant is now: {} from {:?}", current_tm_c, op.operands);
+                    println!(
+                        "slant is now: {} from {:?}",
+                        text_state.current_tm_c, op.operands
+                    );
                 }
             }
             // An actual text-showing operator.
@@ -566,7 +584,7 @@ fn process_textops_in_object(
                                     "[{}]{}[/{}]",
                                     current_font.0, actual_text_string, current_font.0
                                 );
-                                if current_tm_c > 0.0 {
+                                if text_state.current_tm_c > 0.0 {
                                     "[sl]".to_owned() + &actual_text_string + "[/sl]"
                                 } else {
                                     actual_text_string
