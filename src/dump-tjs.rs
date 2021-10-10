@@ -463,58 +463,14 @@ fn process_textops_in_object(
                         //         content[i + 1] = op
                         //         content[i + 2] = EMC []
                         //         i = i + 2
-                        // fn _wrap_text_operation(
-                        //     content: &mut lopdf::content::Content,
-                        //     i: usize,
-                        //     current_font: &(String, ObjectId),
-                        //     current_tm_c: f64,
-                        //     font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-                        //     glyph_ids: Vec<u16>,
-                        //     maps_dir: &std::path::PathBuf,
-                        // ) -> Result<usize>
-                        // called as
-                        // i = _wrap_text_operation(
-                        //     &mut content,
-                        //     i,
-                        //     &current_font,
-                        //     current_tm_c,
-                        //     font_glyph_mappings,
-                        //     glyph_ids,
-                        //     maps_dir,
-                        // )?;
-                        i = {
+                        {
                             let current_font = &text_state.current_font;
 
                             // The string that be encoded into /ActualText surrounding those glyphs.
-                            let mytext = /* actual_text_for(
-                                &glyph_ids,
-                                current_font,
-                                current_tm_c,
-                                font_glyph_mappings,
-                                maps_dir,
-                            )?; */
-                            /*
-                            fn actual_text_for(
-                                glyph_ids: &[u16],
-                                current_font: &(String, ObjectId),
-                                current_tm_c: f64,
-                                font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
-                                maps_dir: &std::path::PathBuf,
-                            ) -> Result<String>*/ {
+                            let mytext = {
                                 // println!("Looking up font {:?}", current_font);
                                 if !font_glyph_mappings.contains_key(&current_font.1) {
-
-                                    let tmp = /*get_font_mapping(
-                                        &current_font.0,
-                                        current_font.1,
-                                        maps_dir,
-                                    )?;*/
-                                    /*
-                                    fn get_font_mapping(
-                                        base_font_name: &str,
-                                        font_id: ObjectId,
-                                        maps_dir: &std::path::PathBuf,
-                                    ) -> Result<HashMap<u16, String>> */ {
+                                    let font_glyph_mapping = {
                                         let base_font_name = &current_font.0;
                                         let font_id = current_font.1;
                                         // let filename = maps_dir.join(format!(
@@ -563,7 +519,7 @@ fn process_textops_in_object(
                                         ret
                                     };
 
-                                    font_glyph_mappings.insert(current_font.1, tmp);
+                                    font_glyph_mappings.insert(current_font.1, font_glyph_mapping);
                                 }
                                 let current_map =
                                     font_glyph_mappings.get_mut(&current_font.1).unwrap();
@@ -641,8 +597,8 @@ fn process_textops_in_object(
                             content
                                 .operations
                                 .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
-                            i + 2
                         };
+                        i = i + 2;
 
                         let obj = document.get_object_mut(content_stream_object_id)?;
                         let stream = obj.as_stream_mut()?;
