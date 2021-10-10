@@ -111,6 +111,28 @@ impl TextState {
         };
         text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
     }
+
+    fn handle_text_showing_operator_dump(
+        &self,
+        glyph_ids: &[u16],
+        files: &mut TjFiles,
+        maps_dir: &std::path::PathBuf,
+    ) {
+        let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
+        let file = {
+            files.file.entry(self.current_font.1).or_insert_with(|| {
+                let filename = std::path::Path::new(maps_dir)
+                    .join(basename_for_font(self.current_font.1, &self.current_font.0) + ".Tjs");
+                println!("Creating file: {:?}", filename);
+                std::fs::create_dir_all(maps_dir.clone()).unwrap();
+                File::create(filename).unwrap()
+            })
+        };
+        glyph_hexes
+            .iter()
+            .for_each(|g| file.write_all(g.as_bytes()).unwrap());
+        file.write_all(b"\n").unwrap();
+    }
 }
 
 enum Phase {
@@ -451,28 +473,7 @@ fn process_textops_in_object(
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
-                        let glyph_hexes: Vec<String> =
-                            glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
-                        let file = {
-                            files
-                                .file
-                                .entry(text_state.current_font.1)
-                                .or_insert_with(|| {
-                                    let filename = std::path::Path::new(maps_dir).join(
-                                        basename_for_font(
-                                            text_state.current_font.1,
-                                            &text_state.current_font.0,
-                                        ) + ".Tjs",
-                                    );
-                                    println!("Creating file: {:?}", filename);
-                                    std::fs::create_dir_all(maps_dir.clone()).unwrap();
-                                    File::create(filename).unwrap()
-                                })
-                        };
-                        glyph_hexes
-                            .iter()
-                            .for_each(|g| file.write_all(g.as_bytes()).unwrap());
-                        file.write_all(b"\n")?;
+                        text_state.handle_text_showing_operator_dump(&glyph_ids, files, maps_dir);
                     }
                     Phase::Phase2Fix => {
                         // Phase 2: Wrap the operator in /ActualText.
