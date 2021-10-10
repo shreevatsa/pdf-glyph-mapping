@@ -31,12 +31,24 @@ struct TextState {
 }
 
 impl TextState {
-    fn process_tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
+    fn handle_tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
     where
         F: FnOnce(&str) -> (String, ObjectId),
     {
+        assert_eq!(op.operands.len(), 1);
         let font_name = op.operands[0].as_name_str().unwrap();
         self.current_font = get_font_from_name(font_name);
+    }
+    fn handle_tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
+        assert_eq!(op.operands.len(), 6);
+        self.current_tm_c = match op.operands[2].as_f64() {
+            Ok(n) => n,
+            Err(_) => op.operands[2].as_i64().unwrap() as f64,
+        };
+        if debug_depth > 0 {
+            indent!(debug_depth);
+            println!("slant is now: {} from {:?}", self.current_tm_c, op.operands);
+        }
     }
 }
 
@@ -360,7 +372,7 @@ fn process_textops_in_object(
                 )?;
             }
             // Setting a new font.
-            "Tf" => text_state.process_tf(op, |font_name: &str| {
+            "Tf" => text_state.handle_tf(op, |font_name: &str| {
                 let font_id = fonts
                     .get(font_name.as_bytes())
                     .unwrap()
@@ -370,20 +382,7 @@ fn process_textops_in_object(
                 real_font_id(font_id, document).unwrap()
             }),
             // Setting font matrix.
-            "Tm" => {
-                assert_eq!(op.operands.len(), 6);
-                text_state.current_tm_c = match op.operands[2].as_f64() {
-                    Ok(n) => n,
-                    Err(_) => op.operands[2].as_i64()? as f64,
-                };
-                if debug_depth > 0 {
-                    indent!(debug_depth);
-                    println!(
-                        "slant is now: {} from {:?}",
-                        text_state.current_tm_c, op.operands
-                    );
-                }
-            }
+            "Tm" => text_state.handle_tm(op, debug_depth),
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 // First get the list of glyph_ids for this operator.
