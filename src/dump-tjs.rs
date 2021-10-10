@@ -24,6 +24,25 @@ macro_rules! indent {
     };
 }
 
+/// The PDF format expects a particular encoding for Unicode strings:
+/// •   Start with the first two bytes being 254 and 255 (FEFF).
+/// •   Follow up with the encoding of the string into UTF16-BE.
+/// You can see this in the PDF 1.7 spec:
+/// •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+/// •   "7.9.2.2 Text String Type" (immediately following the above).
+/// •   ~~"7.3.4.2 Literal Strings" (p. 15, PDF page 23).~~
+fn pdf_encode_unicode_text_string(mytext: &str) -> Vec<u8> {
+    let mut bytes: Vec<u8> = vec![254, 255];
+    for usv in mytext.encode_utf16() {
+        let two_bytes = usv.to_be_bytes();
+        assert_eq!(two_bytes.len(), 2);
+        for byte in &two_bytes {
+            bytes.push(*byte);
+        }
+    }
+    bytes
+}
+
 struct TextState {
     current_font: (String, ObjectId),
     // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
@@ -58,7 +77,7 @@ impl TextState {
 
     // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
     // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
-    fn glyph_ids(&self, op: &lopdf::content::Operation) -> Vec<u16> {
+    fn glyph_ids(op: &lopdf::content::Operation) -> Vec<u16> {
         let operator = &op.operator;
         let mut bytes: Vec<u8> = Vec::new();
         let text: &[u8] = match operator.as_str() {
@@ -427,7 +446,7 @@ fn process_textops_in_object(
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 // First get the list of glyph_ids for this operator.
-                let glyph_ids: Vec<u16> = text_state.glyph_ids(op);
+                let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
@@ -560,27 +579,9 @@ fn process_textops_in_object(
                             // return Ok(actual_text_string.to_string());
                         };
 
-                        // Encode `mytext` into the encoding PDF expects for ActualText.
-                        let mytext_encoded_for_actualtext = {
-                            /*
-                            In the PDF 1.7 spec, see
-                            •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
-                            •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-                            •   "7.9.2.2 Text String Type" (immediately following the above).
-                             */
-                            let mut bytes: Vec<u8> = vec![254, 255];
-                            for usv in mytext.encode_utf16() {
-                                let two_bytes = usv.to_be_bytes();
-                                assert_eq!(two_bytes.len(), 2);
-                                for byte in &two_bytes {
-                                    bytes.push(*byte);
-                                }
-                            }
-                            bytes
-                        };
                         let dict = lopdf::dictionary!(
                             "ActualText" => lopdf::Object::String(
-                                mytext_encoded_for_actualtext,
+                                pdf_encode_unicode_text_string(&mytext),
                                 lopdf::StringFormat::Hexadecimal));
                         content.operations.insert(
                             i,
