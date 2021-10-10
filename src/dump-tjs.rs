@@ -56,7 +56,7 @@ impl TextState {
         F: FnOnce(&str) -> (String, ObjectId),
     {
         assert_eq!(op.operator, "Tf");
-        assert_eq!(op.operands.len(), 1);
+        assert_eq!(op.operands.len(), 2); // font name (key in Font subdictionary of resource dictionary) and size.
         let font_name = op.operands[0].as_name_str().unwrap();
         self.current_font = get_font_from_name(font_name);
     }
@@ -605,10 +605,6 @@ fn process_textops_in_object(
                             .operations
                             .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
                         i = i + 2;
-                        document
-                            .get_object_mut(content_stream_object_id)?
-                            .as_stream_mut()?
-                            .set_content(content.encode()?);
                     }
                 };
             }
@@ -622,7 +618,11 @@ fn process_textops_in_object(
         }
         i += 1;
     }
-    return Ok(());
+    document
+        .get_object_mut(content_stream_object_id)?
+        .as_stream_mut()?
+        .set_content(content.encode()?);
+    Ok(())
 }
 
 // Used for dumping both Tj operands, and unicode mappings (cmap-s).
