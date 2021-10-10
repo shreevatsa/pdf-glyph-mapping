@@ -143,6 +143,15 @@ fn main() -> Result<()> {
     }
 
     // let guard = pprof::ProfilerGuard::new(100)?;
+    /* _process_textops_in_doc(
+        &mut document,
+        &opts.maps_dir,
+        &mut files,
+        &opts.phase,
+        opts.output_pdf_file,
+        opts.page,
+        opts.debug as usize,
+    )?;
     /// For each object in `document`, call `process_textops_in_object`.
     /// The main job is to find, for each page, its resource objects and content streams.
     fn _process_textops_in_doc(
@@ -153,7 +162,15 @@ fn main() -> Result<()> {
         output_pdf_file: Option<std::path::PathBuf>,
         chosen_page_number: Option<u32>,
         debug_depth: usize,
-    ) -> Result<()> {
+    ) -> Result<()> */
+    {
+        let document = &mut document;
+        let maps_dir = &opts.maps_dir;
+        let files = &mut files;
+        let phase = &opts.phase;
+        let output_pdf_file = opts.output_pdf_file;
+        let chosen_page_number = opts.page;
+        let debug_depth = opts.debug as usize;
         let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
@@ -235,17 +252,7 @@ fn main() -> Result<()> {
                 todo!()
             }
         }
-        Ok(())
     }
-    _process_textops_in_doc(
-        &mut document,
-        &opts.maps_dir,
-        &mut files,
-        &opts.phase,
-        opts.output_pdf_file,
-        opts.page,
-        opts.debug as usize,
-    )?;
     // if let Ok(report) = guard.report().build() {
     //     let file = File::create("flamegraph.svg")?;
     //     report.flamegraph(file)?;
