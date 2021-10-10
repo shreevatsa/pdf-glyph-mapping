@@ -253,13 +253,7 @@ struct OpHandler {
     maps_dir: std::path::PathBuf,
     files: TjFiles,
     font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>>,
-    /*
-        content_stream_object_id: ObjectId,
-        document: &mut lopdf::Document,
-        phase: &Phase,
-        debug_depth: usize,
-        seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
-    */
+    phase: Phase,
 }
 
 impl OpHandler {
@@ -267,7 +261,6 @@ impl OpHandler {
         &mut self,
         content: &mut lopdf::content::Content,
         i: &mut usize,
-        phase: &Phase,
         debug_depth: usize,
         get_font_from_name: F,
     ) where
@@ -282,7 +275,7 @@ impl OpHandler {
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 // Call the relevant stuff on text_state, and modify
-                self.handle_text_showing_operator(&op, content, i, phase);
+                self.handle_text_showing_operator(&op, content, i);
                 // For this to work, handler should contain within it:
                 // text_state maps_dir files (if phase 1) font_glyph_mappings (if phase 2)
                 // That's it?
@@ -301,11 +294,10 @@ impl OpHandler {
         op: &lopdf::content::Operation,
         content: &mut lopdf::content::Content,
         i: &mut usize,
-        phase: &Phase,
     ) {
         // First get the list of glyph_ids for this operator.
         let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
-        match phase {
+        match self.phase {
             // Phase 1: Write to file.
             Phase::Phase1Dump => self.text_state.get_mut().handle_text_showing_operator_dump(
                 &glyph_ids,
@@ -473,7 +465,6 @@ fn main() -> Result<()> {
     ) -> Result<()> */
     {
         let document = &mut document;
-        let phase = &opts.phase;
         let output_pdf_file = opts.output_pdf_file;
         let chosen_page_number = opts.page;
         let debug_depth = opts.debug as usize;
@@ -490,6 +481,7 @@ fn main() -> Result<()> {
                 file: HashMap::new(),
             },
             font_glyph_mappings: HashMap::new(),
+            phase: opts.phase,
         };
         for (page_num, page_id) in pages {
             if let Some(p) = chosen_page_number {
@@ -541,7 +533,6 @@ fn main() -> Result<()> {
                     document,
                     &fonts,
                     &xobjects_dict,
-                    phase,
                     debug_depth + (debug_depth > 0) as usize,
                     &mut seen_ops,
                     &mut handler,
@@ -549,7 +540,7 @@ fn main() -> Result<()> {
             }
         }
         println!("Seen the following operators: {:?}", seen_ops);
-        if let Phase::Phase2Fix = phase {
+        if let Phase::Phase2Fix = handler.phase {
             for (k, v) in handler.font_glyph_mappings {
                 let map_filename = format!("map-{}-{}.toml", k.0, k.1);
                 println!("Creating file: {:?}", map_filename);
@@ -581,7 +572,6 @@ fn process_textops_in_object(
     document: &mut lopdf::Document,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
-    phase: &Phase,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
     handler: &mut OpHandler,
@@ -607,61 +597,52 @@ fn process_textops_in_object(
             println!("Operator: {}", operator);
         }
         *seen_ops.entry(operator.clone()).or_insert(0) += 1;
-        match operator.as_str() {
-            // "Invoke named XObject" (chase the reference; "do" it).
-            "Do" => {
-                assert_eq!(op.operands.len(), 1);
-                let name = &op.operands[0].as_name_str()?;
-                let (object_id, stream) = {
-                    let mut object = xobjects_dict.get(name.as_bytes())?;
-                    let mut id = (0, 0);
-                    while let Ok(ref_id) = object.as_reference() {
-                        id = ref_id;
-                        object = document.objects.get(&ref_id).unwrap();
-                    }
-                    (id, object.as_stream()?.clone())
-                };
-                // TODO: Use an Option<Dictionary> instead of allocating a new one.
-                let empty_dict = lopdf::Dictionary::new();
-                let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
-                    Ok(value) => {
-                        let resources_dict = value.as_dict()?;
-                        (
-                            resources_dict.get(b"Font")?.as_dict()?,
-                            match resources_dict.get(b"XObject") {
-                                Ok(rd) => rd.as_dict()?,
-                                Err(_) => &empty_dict,
-                            },
-                        )
-                    }
-                    Err(_) => (&empty_dict, &empty_dict),
-                };
-                process_textops_in_object(
-                    object_id,
-                    document,
-                    &fonts,
-                    xobjects_dict,
-                    phase,
-                    debug_depth + (debug_depth > 0) as usize,
-                    seen_ops,
-                    handler,
-                )?;
-            }
-            _ => handler.handle_op(
-                &mut content,
-                &mut i,
-                phase,
-                debug_depth,
-                |font_name: &str| {
-                    let font_id = fonts
-                        .get(font_name.as_bytes())
-                        .unwrap()
-                        .as_reference()
-                        .unwrap();
-                    // println!("Switching to font {}, which means {:?}", font_name, font_id);
-                    real_font_id(font_id, document).unwrap()
-                },
-            ),
+        if operator.as_str() == "Do" {
+            assert_eq!(op.operands.len(), 1);
+            let name = &op.operands[0].as_name_str()?;
+            let (object_id, stream) = {
+                let mut object = xobjects_dict.get(name.as_bytes())?;
+                let mut id = (0, 0);
+                while let Ok(ref_id) = object.as_reference() {
+                    id = ref_id;
+                    object = document.objects.get(&ref_id).unwrap();
+                }
+                (id, object.as_stream()?.clone())
+            };
+            // TODO: Use an Option<Dictionary> instead of allocating a new one.
+            let empty_dict = lopdf::Dictionary::new();
+            let (fonts, xobjects_dict) = match stream.dict.get(b"Resources") {
+                Ok(value) => {
+                    let resources_dict = value.as_dict()?;
+                    (
+                        resources_dict.get(b"Font")?.as_dict()?,
+                        match resources_dict.get(b"XObject") {
+                            Ok(rd) => rd.as_dict()?,
+                            Err(_) => &empty_dict,
+                        },
+                    )
+                }
+                Err(_) => (&empty_dict, &empty_dict),
+            };
+            process_textops_in_object(
+                object_id,
+                document,
+                &fonts,
+                xobjects_dict,
+                debug_depth + (debug_depth > 0) as usize,
+                seen_ops,
+                handler,
+            )?;
+        } else {
+            handler.handle_op(&mut content, &mut i, debug_depth, |font_name: &str| {
+                let font_id = fonts
+                    .get(font_name.as_bytes())
+                    .unwrap()
+                    .as_reference()
+                    .unwrap();
+                // println!("Switching to font {}, which means {:?}", font_name, font_id);
+                real_font_id(font_id, document).unwrap()
+            })
         }
         i += 1;
     }
