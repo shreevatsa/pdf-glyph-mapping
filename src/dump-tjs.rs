@@ -361,85 +361,73 @@ fn main() -> Result<()> {
     let end = std::time::Instant::now();
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
-    match opts.phase {
-        Phase::Phase1Dump => {
-            // For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
-            /* _dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
-            fn _dump_tounicode_mappings(
-                document: &lopdf::Document,
-                maps_dir: std::path::PathBuf,
-            ) -> Result<()>*/
-            {
-                let document = &document;
-                let maps_dir = opts.maps_dir.clone();
-                for (object_id, object) in &document.objects {
-                    if let Ok(dict) = object.as_dict() {
-                        if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
-                            let (base_font_name, font_id) = real_font_id(*object_id, &document)?;
-                            // map from glyph id (as 4-digit hex string) to set of codepoints.
-                            // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
-                            let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
-                            let stream = stream_object.as_stream()?;
-                            // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
-                            if let Ok(content) = stream.decode_content() {
-                                for op in content.operations {
-                                    let operator = op.operator;
-                                    if operator == "endbfchar" {
-                                        for src_and_dst in op.operands.chunks(2) {
-                                            assert_eq!(src_and_dst.len(), 2);
-                                            let src = from_two_bytes(src_and_dst[0].as_str()?);
-                                            let dst = from_two_bytes(src_and_dst[1].as_str()?);
-                                            if dst != 0 {
-                                                mapped
-                                                    .entry(format!("{:04X}", src))
-                                                    .or_default()
-                                                    .insert(dst);
-                                            }
-                                        }
-                                    } else if operator == "endbfrange" {
-                                        for begin_end_offset in op.operands.chunks(3) {
-                                            assert_eq!(begin_end_offset.len(), 3);
-                                            let begin =
-                                                from_two_bytes(begin_end_offset[0].as_str()?);
-                                            let end = from_two_bytes(begin_end_offset[1].as_str()?);
-                                            let offset =
-                                                from_two_bytes(begin_end_offset[2].as_str()?);
-                                            for src in begin..=end {
-                                                let dst = src - begin + offset;
-                                                if dst != 0 {
-                                                    mapped
-                                                        .entry(format!("{:04X}", src))
-                                                        .or_default()
-                                                        .insert(dst);
-                                                }
-                                            }
+    if let Phase::Phase1Dump = opts.phase {
+        // For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
+        let document = &document;
+        let maps_dir = opts.maps_dir.clone();
+        for (object_id, object) in &document.objects {
+            if let Ok(dict) = object.as_dict() {
+                if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
+                    let (base_font_name, font_id) = real_font_id(*object_id, &document)?;
+                    // map from glyph id (as 4-digit hex string) to set of codepoints.
+                    // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
+                    let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
+                    let stream = stream_object.as_stream()?;
+                    // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
+                    if let Ok(content) = stream.decode_content() {
+                        for op in content.operations {
+                            let operator = op.operator;
+                            if operator == "endbfchar" {
+                                for src_and_dst in op.operands.chunks(2) {
+                                    assert_eq!(src_and_dst.len(), 2);
+                                    let src = from_two_bytes(src_and_dst[0].as_str()?);
+                                    let dst = from_two_bytes(src_and_dst[1].as_str()?);
+                                    if dst != 0 {
+                                        mapped
+                                            .entry(format!("{:04X}", src))
+                                            .or_default()
+                                            .insert(dst);
+                                    }
+                                }
+                            } else if operator == "endbfrange" {
+                                for begin_end_offset in op.operands.chunks(3) {
+                                    assert_eq!(begin_end_offset.len(), 3);
+                                    let begin = from_two_bytes(begin_end_offset[0].as_str()?);
+                                    let end = from_two_bytes(begin_end_offset[1].as_str()?);
+                                    let offset = from_two_bytes(begin_end_offset[2].as_str()?);
+                                    for src in begin..=end {
+                                        let dst = src - begin + offset;
+                                        if dst != 0 {
+                                            mapped
+                                                .entry(format!("{:04X}", src))
+                                                .or_default()
+                                                .insert(dst);
                                         }
                                     }
                                 }
                             }
-                            if mapped.len() > 0 {
-                                std::fs::create_dir_all(maps_dir.clone())?;
-                                let filename = maps_dir
-                                    .join(basename_for_font(font_id, &base_font_name) + ".toml");
-                                println!(
-                                    "Creating file {:?} for Font {:?} ({}) with {} mappings",
-                                    filename,
-                                    font_id,
-                                    base_font_name,
-                                    mapped.len()
-                                );
-                                let toml_string = toml::to_string(&mapped)?;
-                                std::fs::write(filename, toml_string)?;
-                            } else {
-                                println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
-                            }
                         }
+                    }
+                    if mapped.len() > 0 {
+                        std::fs::create_dir_all(maps_dir.clone())?;
+                        let filename =
+                            maps_dir.join(basename_for_font(font_id, &base_font_name) + ".toml");
+                        println!(
+                            "Creating file {:?} for Font {:?} ({}) with {} mappings",
+                            filename,
+                            font_id,
+                            base_font_name,
+                            mapped.len()
+                        );
+                        let toml_string = toml::to_string(&mapped)?;
+                        std::fs::write(filename, toml_string)?;
+                    } else {
+                        println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
                     }
                 }
             }
-            println!("Done dumping ToUnicode mappings (if any).");
         }
-        Phase::Phase2Fix => {}
+        println!("Done dumping ToUnicode mappings (if any).");
     }
 
     // let guard = pprof::ProfilerGuard::new(100)?;
