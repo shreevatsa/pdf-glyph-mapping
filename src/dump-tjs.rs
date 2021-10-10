@@ -431,6 +431,8 @@ fn process_textops_in_object(
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
+                        let glyph_hexes: Vec<String> =
+                            glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
                         let file = {
                             files
                                 .file
@@ -447,8 +449,6 @@ fn process_textops_in_object(
                                     File::create(filename).unwrap()
                                 })
                         };
-                        let glyph_hexes: Vec<String> =
-                            glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
                         glyph_hexes
                             .iter()
                             .for_each(|g| file.write_all(g.as_bytes()).unwrap());
