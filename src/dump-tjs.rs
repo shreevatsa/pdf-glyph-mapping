@@ -31,15 +31,20 @@ struct TextState {
 }
 
 impl TextState {
-    fn handle_tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
+    #[allow(non_snake_case)]
+    fn handle_Tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
     where
         F: FnOnce(&str) -> (String, ObjectId),
     {
+        assert_eq!(op.operator, "Tf");
         assert_eq!(op.operands.len(), 1);
         let font_name = op.operands[0].as_name_str().unwrap();
         self.current_font = get_font_from_name(font_name);
     }
-    fn handle_tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
+
+    #[allow(non_snake_case)]
+    fn handle_Tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
+        assert_eq!(op.operator, "Tm");
         assert_eq!(op.operands.len(), 6);
         self.current_tm_c = match op.operands[2].as_f64() {
             Ok(n) => n,
@@ -49,6 +54,42 @@ impl TextState {
             indent!(debug_depth);
             println!("slant is now: {} from {:?}", self.current_tm_c, op.operands);
         }
+    }
+
+    // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
+    // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
+    fn glyph_ids(&self, op: &lopdf::content::Operation) -> Vec<u16> {
+        let operator = &op.operator;
+        let mut bytes: Vec<u8> = Vec::new();
+        let text: &[u8] = match operator.as_str() {
+            // Tj "Show a text string."
+            // '  "Move to the next line and show a text string."
+            "Tj" | "'" => {
+                assert_eq!(op.operands.len(), 1);
+                op.operands[0].as_str().unwrap()
+            }
+            // "  "Move to the next line and show a text string..." op0 is the word spacing and op1 is the character spacing. op2 is the actual string.
+            "\"" => {
+                assert_eq!(op.operands.len(), 3);
+                op.operands[2].as_str().unwrap()
+            }
+            // TJ "Show one or more text strings, allowing individual glyph positioning." (operand is an array)
+            "TJ" => {
+                assert_eq!(op.operands.len(), 1);
+                for element in op.operands[0].as_array().unwrap() {
+                    match element {
+                        lopdf::Object::String(s, _) => bytes.extend(s),
+                        // "If it is a number, the operator shall adjust the text position by that amount; that is, it shall translate the text matrix, Tm."
+                        // We don't care about this right now.
+                        lopdf::Object::Real(_) => {}
+                        _ => assert!(false, "Unexpected per PDF spec: {:#?}", element),
+                    }
+                }
+                &bytes
+            }
+            _ => unreachable!(),
+        };
+        text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
     }
 }
 
@@ -290,7 +331,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// For each text operator inside `object_id`, calls either `dump_text_operation` or `wrap_text_operation`.
+/// Handle each "interesting" operation inside `object_id`.
 /// This can call itself, because of the "Do" operator.
 fn process_textops_in_object(
     content_stream_object_id: ObjectId,
@@ -372,7 +413,7 @@ fn process_textops_in_object(
                 )?;
             }
             // Setting a new font.
-            "Tf" => text_state.handle_tf(op, |font_name: &str| {
+            "Tf" => text_state.handle_Tf(op, |font_name: &str| {
                 let font_id = fonts
                     .get(font_name.as_bytes())
                     .unwrap()
@@ -382,44 +423,11 @@ fn process_textops_in_object(
                 real_font_id(font_id, document).unwrap()
             }),
             // Setting font matrix.
-            "Tm" => text_state.handle_tm(op, debug_depth),
+            "Tm" => text_state.handle_Tm(op, debug_depth),
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 // First get the list of glyph_ids for this operator.
-                // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
-                // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
-                let glyph_ids: Vec<u16> = {
-                    let mut bytes: Vec<u8> = Vec::new();
-                    let text: &[u8] = match operator.as_str() {
-                        // Tj "Show a text string."
-                        // '  "Move to the next line and show a text string."
-                        "Tj" | "'" => {
-                            assert_eq!(op.operands.len(), 1);
-                            op.operands[0].as_str()?
-                        }
-                        // "  "Move to the next line and show a text string..." op0 is the word spacing and op1 is the character spacing. op2 is the actual string.
-                        "\"" => {
-                            assert_eq!(op.operands.len(), 3);
-                            op.operands[2].as_str()?
-                        }
-                        // TJ "Show one or more text strings, allowing individual glyph positioning." (operand is an array)
-                        "TJ" => {
-                            assert_eq!(op.operands.len(), 1);
-                            for element in op.operands[0].as_array()? {
-                                match element {
-                                    lopdf::Object::String(s, _) => bytes.extend(s),
-                                    // "If it is a number, the operator shall adjust the text position by that amount; that is, it shall translate the text matrix, Tm."
-                                    // We don't care about this right now.
-                                    lopdf::Object::Real(_) => {}
-                                    _ => assert!(false, "Unexpected per PDF spec: {:#?}", element),
-                                }
-                            }
-                            &bytes
-                        }
-                        _ => unreachable!(),
-                    };
-                    text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
-                };
+                let glyph_ids: Vec<u16> = text_state.glyph_ids(op);
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
