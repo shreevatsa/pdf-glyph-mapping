@@ -463,141 +463,135 @@ fn process_textops_in_object(
                         //         content[i + 1] = op
                         //         content[i + 2] = EMC []
                         //         i = i + 2
-                        {
-                            let current_font = &text_state.current_font;
+                        let current_font = &text_state.current_font;
 
-                            // The string that be encoded into /ActualText surrounding those glyphs.
-                            let mytext = {
-                                // println!("Looking up font {:?}", current_font);
-                                if !font_glyph_mappings.contains_key(&current_font.1) {
-                                    let font_glyph_mapping = {
-                                        let base_font_name = &current_font.0;
-                                        let font_id = current_font.1;
-                                        // let filename = maps_dir.join(format!(
-                                        //     "{}.toml",
-                                        //     basename_for_font(font_id, base_font_name)
-                                        // ));
-                                        let glob_pattern = format!(
-                                            "{}/*{}.toml",
-                                            maps_dir.to_string_lossy(),
-                                            base_font_name
-                                        );
-                                        println!("For font {:?} = {}, looking for map files matching pattern #{}#", font_id, base_font_name, glob_pattern);
-                                        let mut filename = PathBuf::new();
-                                        for entry in glob::glob(&glob_pattern)
-                                            .expect("Failed to read glob pattern")
-                                        {
-                                            match entry {
-                                                Ok(path) => filename = path,
-                                                Err(e) => println!(
-                                                    "While trying to match {}: {:?}",
-                                                    glob_pattern, e
-                                                ),
-                                            }
+                        // The string that be encoded into /ActualText surrounding those glyphs.
+                        let mytext = {
+                            // println!("Looking up font {:?}", current_font);
+                            if !font_glyph_mappings.contains_key(&current_font.1) {
+                                let font_glyph_mapping = {
+                                    let base_font_name = &current_font.0;
+                                    let font_id = current_font.1;
+                                    // let filename = maps_dir.join(format!(
+                                    //     "{}.toml",
+                                    //     basename_for_font(font_id, base_font_name)
+                                    // ));
+                                    let glob_pattern = format!(
+                                        "{}/*{}.toml",
+                                        maps_dir.to_string_lossy(),
+                                        base_font_name
+                                    );
+                                    println!("For font {:?} = {}, looking for map files matching pattern #{}#", font_id, base_font_name, glob_pattern);
+                                    let mut filename = PathBuf::new();
+                                    for entry in glob::glob(&glob_pattern)
+                                        .expect("Failed to read glob pattern")
+                                    {
+                                        match entry {
+                                            Ok(path) => filename = path,
+                                            Err(e) => println!(
+                                                "While trying to match {}: {:?}",
+                                                glob_pattern, e
+                                            ),
                                         }
-                                        println!("Trying to read from filename {:?}", filename);
-
-                                        #[derive(Deserialize)]
-                                        struct Replacements {
-                                            replacement_text: String,
-                                            replacement_codes: Vec<i32>,
-                                            replacement_desc: Vec<String>,
-                                        }
-
-                                        let m: HashMap<String, Replacements> =
-                                            toml::from_slice(&std::fs::read(filename)?)?;
-                                        let mut ret = HashMap::<u16, String>::new();
-                                        for (glyph_id_str, replacements) in m {
-                                            // Silence warning
-                                            let _replacement_codes = replacements.replacement_codes;
-                                            let _replacement_desc = replacements.replacement_desc;
-                                            ret.insert(
-                                                u16::from_str_radix(&glyph_id_str, 16)?,
-                                                replacements.replacement_text,
-                                            );
-                                        }
-                                        ret
-                                    };
-
-                                    font_glyph_mappings.insert(current_font.1, font_glyph_mapping);
-                                }
-                                let current_map =
-                                    font_glyph_mappings.get_mut(&current_font.1).unwrap();
-
-                                let actual_text_string = glyph_ids
-                                    .iter()
-                                    .map(|glyph_id| {
-                                        if let Some(v) = current_map.get(glyph_id) {
-                                            v.to_string()
-                                        } else {
-                                            println!(
-                                                "No mapping found for glyph {:04X} in font {}!",
-                                                glyph_id, current_font.0
-                                            );
-                                            println!("Nevermind, enter replacement text now:");
-                                            let replacement: String = text_io::read!("{}\n");
-                                            println!("Thanks, using replacement #{}#", replacement);
-                                            current_map.insert(*glyph_id, replacement.clone());
-                                            replacement
-                                        }
-                                    })
-                                    .join("");
-                                // Hack: Surround the ActualText with the font name. Better would be to do this in the equivalent of `pdftotext`.
-                                let actual_text_string = format!(
-                                    "[{}]{}[/{}]",
-                                    current_font.0, actual_text_string, current_font.0
-                                );
-                                if text_state.current_tm_c > 0.0 {
-                                    "[sl]".to_owned() + &actual_text_string + "[/sl]"
-                                } else {
-                                    actual_text_string
-                                }
-                                // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
-                                // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
-                                // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
-                                // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
-                                // // if actual_text_string.contains("<CC") {
-                                // //     println!("Some leftovers in #{}#", actual_text_string);
-                                // // }
-                                // return Ok(actual_text_string.to_string());
-                            };
-
-                            // Encode `mytext` into the encoding PDF expects for ActualText.
-                            let mytext_encoded_for_actualtext = {
-                                /*
-                                In the PDF 1.7 spec, see
-                                •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
-                                •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-                                •   "7.9.2.2 Text String Type" (immediately following the above).
-                                 */
-                                let mut bytes: Vec<u8> = vec![254, 255];
-                                for usv in mytext.encode_utf16() {
-                                    let two_bytes = usv.to_be_bytes();
-                                    assert_eq!(two_bytes.len(), 2);
-                                    for byte in &two_bytes {
-                                        bytes.push(*byte);
                                     }
-                                }
-                                bytes
-                            };
-                            let dict = lopdf::dictionary!(
-                                "ActualText" => lopdf::Object::String(
-                                    mytext_encoded_for_actualtext,
-                                    lopdf::StringFormat::Hexadecimal));
-                            content.operations.insert(
-                                i,
-                                lopdf::content::Operation::new(
-                                    "BDC",
-                                    vec![
-                                        lopdf::Object::from("Span"),
-                                        lopdf::Object::Dictionary(dict),
-                                    ],
-                                ),
+                                    println!("Trying to read from filename {:?}", filename);
+
+                                    #[derive(Deserialize)]
+                                    struct Replacements {
+                                        replacement_text: String,
+                                        replacement_codes: Vec<i32>,
+                                        replacement_desc: Vec<String>,
+                                    }
+
+                                    let m: HashMap<String, Replacements> =
+                                        toml::from_slice(&std::fs::read(filename)?)?;
+                                    let mut ret = HashMap::<u16, String>::new();
+                                    for (glyph_id_str, replacements) in m {
+                                        // Silence warning
+                                        let _replacement_codes = replacements.replacement_codes;
+                                        let _replacement_desc = replacements.replacement_desc;
+                                        ret.insert(
+                                            u16::from_str_radix(&glyph_id_str, 16)?,
+                                            replacements.replacement_text,
+                                        );
+                                    }
+                                    ret
+                                };
+
+                                font_glyph_mappings.insert(current_font.1, font_glyph_mapping);
+                            }
+                            let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
+
+                            let actual_text_string = glyph_ids
+                                .iter()
+                                .map(|glyph_id| {
+                                    if let Some(v) = current_map.get(glyph_id) {
+                                        v.to_string()
+                                    } else {
+                                        println!(
+                                            "No mapping found for glyph {:04X} in font {}!",
+                                            glyph_id, current_font.0
+                                        );
+                                        println!("Nevermind, enter replacement text now:");
+                                        let replacement: String = text_io::read!("{}\n");
+                                        println!("Thanks, using replacement #{}#", replacement);
+                                        current_map.insert(*glyph_id, replacement.clone());
+                                        replacement
+                                    }
+                                })
+                                .join("");
+                            // Hack: Surround the ActualText with the font name. Better would be to do this in the equivalent of `pdftotext`.
+                            let actual_text_string = format!(
+                                "[{}]{}[/{}]",
+                                current_font.0, actual_text_string, current_font.0
                             );
-                            content
-                                .operations
-                                .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
+                            if text_state.current_tm_c > 0.0 {
+                                "[sl]".to_owned() + &actual_text_string + "[/sl]"
+                            } else {
+                                actual_text_string
+                            }
+                            // let re1 = regex::Regex::new(r"ि<CCsucc>(([क-ह]्)*[क-ह])").unwrap();
+                            // let actual_text_string = re1.replace_all(&actual_text_string, r"\1ि");
+                            // let re2 = regex::Regex::new(r"(([क-ह]्)*[क-ह][^क-ह]*)र्<CCprec>").unwrap();
+                            // let actual_text_string = re2.replace_all(&actual_text_string, r"र्\1");
+                            // // if actual_text_string.contains("<CC") {
+                            // //     println!("Some leftovers in #{}#", actual_text_string);
+                            // // }
+                            // return Ok(actual_text_string.to_string());
                         };
+
+                        // Encode `mytext` into the encoding PDF expects for ActualText.
+                        let mytext_encoded_for_actualtext = {
+                            /*
+                            In the PDF 1.7 spec, see
+                            •   "7.3.4.2 Literal Strings" (p. 15, PDF page 23).
+                            •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+                            •   "7.9.2.2 Text String Type" (immediately following the above).
+                             */
+                            let mut bytes: Vec<u8> = vec![254, 255];
+                            for usv in mytext.encode_utf16() {
+                                let two_bytes = usv.to_be_bytes();
+                                assert_eq!(two_bytes.len(), 2);
+                                for byte in &two_bytes {
+                                    bytes.push(*byte);
+                                }
+                            }
+                            bytes
+                        };
+                        let dict = lopdf::dictionary!(
+                            "ActualText" => lopdf::Object::String(
+                                mytext_encoded_for_actualtext,
+                                lopdf::StringFormat::Hexadecimal));
+                        content.operations.insert(
+                            i,
+                            lopdf::content::Operation::new(
+                                "BDC",
+                                vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
+                            ),
+                        );
+                        content
+                            .operations
+                            .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
                         i = i + 2;
 
                         let obj = document.get_object_mut(content_stream_object_id)?;
