@@ -24,6 +24,10 @@ macro_rules! indent {
     };
 }
 
+struct TextState {
+    current_font: (String, ObjectId),
+}
+
 enum Phase {
     Phase1Dump,
     Phase2Fix,
@@ -288,7 +292,9 @@ fn process_textops_in_object(
         // println!("Finding text operators in: {:?}", content);
         println!("Finding text ops among {} ops.", content.operations.len(),);
     }
-    let mut current_font: (String, ObjectId) = ("".to_string(), (0, 0));
+    let mut text_state = TextState {
+        current_font: ("".to_string(), (0, 0)),
+    };
     let mut current_tm_c = 0.0; // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
     let mut i = 0;
     while i < content.operations.len() {
@@ -346,7 +352,7 @@ fn process_textops_in_object(
                 let font_name = op.operands[0].as_name_str()?;
                 let font_id = fonts.get(font_name.as_bytes())?.as_reference()?;
                 // println!("Switching to font {}, which means {:?}", font_name, font_id);
-                current_font = real_font_id(font_id, document)?;
+                text_state.current_font = real_font_id(font_id, document)?;
             }
             // Setting font matrix.
             "Tm" => {
@@ -401,14 +407,20 @@ fn process_textops_in_object(
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
                         let file = {
-                            files.file.entry(current_font.1).or_insert_with(|| {
-                                let filename = std::path::Path::new(maps_dir).join(
-                                    basename_for_font(current_font.1, &current_font.0) + ".Tjs",
-                                );
-                                println!("Creating file: {:?}", filename);
-                                std::fs::create_dir_all(maps_dir.clone()).unwrap();
-                                File::create(filename).unwrap()
-                            })
+                            files
+                                .file
+                                .entry(text_state.current_font.1)
+                                .or_insert_with(|| {
+                                    let filename = std::path::Path::new(maps_dir).join(
+                                        basename_for_font(
+                                            text_state.current_font.1,
+                                            &text_state.current_font.0,
+                                        ) + ".Tjs",
+                                    );
+                                    println!("Creating file: {:?}", filename);
+                                    std::fs::create_dir_all(maps_dir.clone()).unwrap();
+                                    File::create(filename).unwrap()
+                                })
                         };
                         let glyph_hexes: Vec<String> =
                             glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
@@ -446,7 +458,7 @@ fn process_textops_in_object(
                         //     maps_dir,
                         // )?;
                         i = {
-                            let current_font = &current_font;
+                            let current_font = &text_state.current_font;
 
                             // The string that be encoded into /ActualText surrounding those glyphs.
                             let mytext = /* actual_text_for(
@@ -626,6 +638,7 @@ fn process_textops_in_object(
     return Ok(());
 }
 
+// Used for dumping both Tj operands, and unicode mappings (cmap-s).
 fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
     format!("font-{}-{}-{}", font_id.0, font_id.1, base_font_name)
 }
