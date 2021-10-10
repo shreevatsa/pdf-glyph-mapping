@@ -115,8 +115,8 @@ impl TextState {
     fn handle_text_showing_operator_dump(
         &self,
         glyph_ids: &[u16],
-        files: &mut TjFiles,
         maps_dir: &std::path::PathBuf,
+        files: &mut TjFiles,
     ) {
         let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
         let file = {
@@ -137,8 +137,8 @@ impl TextState {
     fn handle_text_showing_operator_wrap(
         &self,
         glyph_ids: &[u16],
-        font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
         maps_dir: &std::path::PathBuf,
+        font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     ) -> lopdf::Dictionary {
         // Phase 2: Wrap the operator in /ActualText.
 
@@ -586,13 +586,13 @@ fn process_textops_in_object(
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
-                        text_state.handle_text_showing_operator_dump(&glyph_ids, files, maps_dir)
+                        text_state.handle_text_showing_operator_dump(&glyph_ids, maps_dir, files)
                     }
                     Phase::Phase2Fix => {
                         let dict = text_state.handle_text_showing_operator_wrap(
                             &glyph_ids,
-                            font_glyph_mappings,
                             maps_dir,
+                            font_glyph_mappings,
                         );
                         content.operations.insert(
                             i,
@@ -605,10 +605,10 @@ fn process_textops_in_object(
                             .operations
                             .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
                         i = i + 2;
-
-                        let obj = document.get_object_mut(content_stream_object_id)?;
-                        let stream = obj.as_stream_mut()?;
-                        stream.set_content(content.encode()?);
+                        document
+                            .get_object_mut(content_stream_object_id)?
+                            .as_stream_mut()?
+                            .set_content(content.encode()?);
                     }
                 };
             }
