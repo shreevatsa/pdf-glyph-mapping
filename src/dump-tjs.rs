@@ -75,8 +75,9 @@ impl TextState {
         }
     }
 
-    // TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
-    // but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
+    /// For the PDF text-showing operators (Tj ' " TJ), convert the operand into a vector (the glyph ids in the font).
+    /// TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
+    /// but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
     fn glyph_ids(op: &lopdf::content::Operation) -> Vec<u16> {
         let operator = &op.operator;
         let mut bytes: Vec<u8> = Vec::new();
