@@ -248,6 +248,92 @@ impl TextState {
     }
 }
 
+struct OpHandler {
+    text_state: std::cell::Cell<TextState>,
+    maps_dir: std::path::PathBuf,
+    files: TjFiles,
+    font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>>,
+    /*
+        content_stream_object_id: ObjectId,
+        document: &mut lopdf::Document,
+        phase: &Phase,
+        debug_depth: usize,
+        seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
+    */
+}
+
+impl OpHandler {
+    fn handle_op<F>(
+        &mut self,
+        content: &mut lopdf::content::Content,
+        i: &mut usize,
+        phase: &Phase,
+        debug_depth: usize,
+        get_font_from_name: F,
+    ) where
+        F: FnOnce(&str) -> (String, ObjectId),
+    {
+        let op = content.operations[*i].clone();
+        match op.operator.as_str() {
+            // Setting a new font.
+            "Tf" => self.text_state.get_mut().handle_Tf(&op, get_font_from_name),
+            // Setting font matrix.
+            "Tm" => self.text_state.get_mut().handle_Tm(&op, debug_depth),
+            // An actual text-showing operator.
+            "Tj" | "TJ" | "'" | "\"" => {
+                // Call the relevant stuff on text_state, and modify
+                self.handle_text_showing_operator(&op, content, i, phase);
+                // For this to work, handler should contain within it:
+                // text_state maps_dir files (if phase 1) font_glyph_mappings (if phase 2)
+                // That's it?
+            }
+            // None of the cases we care about.
+            _ => {
+                // println!(
+                //     "Not a text-showing operator: {} {:?}",
+                //     &operator, op.operands
+                // );
+            }
+        }
+    }
+    fn handle_text_showing_operator(
+        &mut self,
+        op: &lopdf::content::Operation,
+        content: &mut lopdf::content::Content,
+        i: &mut usize,
+        phase: &Phase,
+    ) {
+        // First get the list of glyph_ids for this operator.
+        let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
+        match phase {
+            // Phase 1: Write to file.
+            Phase::Phase1Dump => self.text_state.get_mut().handle_text_showing_operator_dump(
+                &glyph_ids,
+                &self.maps_dir,
+                &mut self.files,
+            ),
+            Phase::Phase2Fix => {
+                let dict = self.text_state.get_mut().handle_text_showing_operator_wrap(
+                    &glyph_ids,
+                    &self.maps_dir,
+                    &mut self.font_glyph_mappings,
+                );
+                content.operations.insert(
+                    *i,
+                    lopdf::content::Operation::new(
+                        "BDC",
+                        vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
+                    ),
+                );
+                content
+                    .operations
+                    .insert(*i + 2, lopdf::content::Operation::new("EMC", vec![]));
+                *i = *i + 2;
+            }
+        };
+    }
+}
+
 enum Phase {
     Phase1Dump,
     Phase2Fix,
@@ -276,10 +362,6 @@ fn main() -> Result<()> {
 
     let opts = Opts::parse();
     let filename = opts.input_pdf_file;
-
-    let mut files = TjFiles {
-        file: HashMap::new(),
-    };
 
     let start = std::time::Instant::now();
     println!("Loading {:?}", filename);
@@ -391,16 +473,24 @@ fn main() -> Result<()> {
     ) -> Result<()> */
     {
         let document = &mut document;
-        let maps_dir = &opts.maps_dir;
-        let files = &mut files;
         let phase = &opts.phase;
         let output_pdf_file = opts.output_pdf_file;
         let chosen_page_number = opts.page;
         let debug_depth = opts.debug as usize;
-        let mut font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>> = HashMap::new();
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
         let mut seen_ops = linked_hash_map::LinkedHashMap::new();
+        let mut handler: OpHandler = OpHandler {
+            text_state: std::cell::Cell::new(TextState {
+                current_font: ("".to_string(), (0, 0)),
+                current_tm_c: 0.0,
+            }),
+            maps_dir: opts.maps_dir,
+            files: TjFiles {
+                file: HashMap::new(),
+            },
+            font_glyph_mappings: HashMap::new(),
+        };
         for (page_num, page_id) in pages {
             if let Some(p) = chosen_page_number {
                 if page_num != p {
@@ -451,18 +541,16 @@ fn main() -> Result<()> {
                     document,
                     &fonts,
                     &xobjects_dict,
-                    maps_dir,
-                    files,
-                    &mut font_glyph_mappings,
                     phase,
                     debug_depth + (debug_depth > 0) as usize,
                     &mut seen_ops,
+                    &mut handler,
                 )?;
             }
         }
         println!("Seen the following operators: {:?}", seen_ops);
         if let Phase::Phase2Fix = phase {
-            for (k, v) in font_glyph_mappings {
+            for (k, v) in handler.font_glyph_mappings {
                 let map_filename = format!("map-{}-{}.toml", k.0, k.1);
                 println!("Creating file: {:?}", map_filename);
                 let mut map_for_toml: HashMap<String, String> = HashMap::new();
@@ -493,12 +581,10 @@ fn process_textops_in_object(
     document: &mut lopdf::Document,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
-    maps_dir: &std::path::PathBuf,
-    files: &mut TjFiles,
-    font_glyph_mappings: &mut HashMap<ObjectId, HashMap<u16, String>>,
     phase: &Phase,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
+    handler: &mut OpHandler,
 ) -> Result<()> {
     let mut content: lopdf::content::Content = {
         let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
@@ -512,10 +598,6 @@ fn process_textops_in_object(
         // println!("Finding text operators in: {:?}", content);
         println!("Finding text ops among {} ops.", content.operations.len(),);
     }
-    let mut text_state = TextState {
-        current_font: ("".to_string(), (0, 0)),
-        current_tm_c: 0.0,
-    };
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
@@ -559,62 +641,27 @@ fn process_textops_in_object(
                     document,
                     &fonts,
                     xobjects_dict,
-                    maps_dir,
-                    files,
-                    font_glyph_mappings,
                     phase,
                     debug_depth + (debug_depth > 0) as usize,
                     seen_ops,
+                    handler,
                 )?;
             }
-            // Setting a new font.
-            "Tf" => text_state.handle_Tf(op, |font_name: &str| {
-                let font_id = fonts
-                    .get(font_name.as_bytes())
-                    .unwrap()
-                    .as_reference()
-                    .unwrap();
-                // println!("Switching to font {}, which means {:?}", font_name, font_id);
-                real_font_id(font_id, document).unwrap()
-            }),
-            // Setting font matrix.
-            "Tm" => text_state.handle_Tm(op, debug_depth),
-            // An actual text-showing operator.
-            "Tj" | "TJ" | "'" | "\"" => {
-                // First get the list of glyph_ids for this operator.
-                let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
-                match phase {
-                    // Phase 1: Write to file.
-                    Phase::Phase1Dump => {
-                        text_state.handle_text_showing_operator_dump(&glyph_ids, maps_dir, files)
-                    }
-                    Phase::Phase2Fix => {
-                        let dict = text_state.handle_text_showing_operator_wrap(
-                            &glyph_ids,
-                            maps_dir,
-                            font_glyph_mappings,
-                        );
-                        content.operations.insert(
-                            i,
-                            lopdf::content::Operation::new(
-                                "BDC",
-                                vec![lopdf::Object::from("Span"), lopdf::Object::Dictionary(dict)],
-                            ),
-                        );
-                        content
-                            .operations
-                            .insert(i + 2, lopdf::content::Operation::new("EMC", vec![]));
-                        i = i + 2;
-                    }
-                };
-            }
-            // None of the cases we care about.
-            _ => {
-                // println!(
-                //     "Not a text-showing operator: {} {:?}",
-                //     &operator, op.operands
-                // );
-            }
+            _ => handler.handle_op(
+                &mut content,
+                &mut i,
+                phase,
+                debug_depth,
+                |font_name: &str| {
+                    let font_id = fonts
+                        .get(font_name.as_bytes())
+                        .unwrap()
+                        .as_reference()
+                        .unwrap();
+                    // println!("Switching to font {}, which means {:?}", font_name, font_id);
+                    real_font_id(font_id, document).unwrap()
+                },
+            ),
         }
         i += 1;
     }

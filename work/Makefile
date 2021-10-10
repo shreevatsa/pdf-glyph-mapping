@@ -1,5 +1,6 @@
 ORIG=../../gp-mbh/unabridged
 # ORIG=../../page-200/out-mbh
+# ORIG=../../gp-mbh/mbh-sample-clean-qdf
 ORIG_PDF=${ORIG}.pdf
 
 # Steps:
