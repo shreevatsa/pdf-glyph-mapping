@@ -65,11 +65,15 @@ fn main() -> Result<()> {
 
     match opts.phase {
         Phase::Phase1Dump => {
-            /// For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
+            // For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
+            /* _dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
             fn _dump_tounicode_mappings(
                 document: &lopdf::Document,
                 maps_dir: std::path::PathBuf,
-            ) -> Result<()> {
+            ) -> Result<()>*/
+            {
+                let document = &document;
+                let maps_dir = opts.maps_dir.clone();
                 for (object_id, object) in &document.objects {
                     if let Ok(dict) = object.as_dict() {
                         if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
@@ -134,9 +138,7 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                Ok(())
             }
-            _dump_tounicode_mappings(&document, opts.maps_dir.clone())?;
             println!("Done dumping ToUnicode mappings (if any).");
         }
         Phase::Phase2Fix => {}
