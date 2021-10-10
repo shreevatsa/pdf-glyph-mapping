@@ -457,11 +457,20 @@ fn process_textops_in_object(
                             ) -> Result<String>*/ {
                                 // println!("Looking up font {:?}", current_font);
                                 if !font_glyph_mappings.contains_key(&current_font.1) {
+
+                                    let tmp = /*get_font_mapping(
+                                        &current_font.0,
+                                        current_font.1,
+                                        maps_dir,
+                                    )?;*/
+                                    /*
                                     fn get_font_mapping(
                                         base_font_name: &str,
                                         font_id: ObjectId,
                                         maps_dir: &std::path::PathBuf,
-                                    ) -> Result<HashMap<u16, String>> {
+                                    ) -> Result<HashMap<u16, String>> */ {
+                                        let base_font_name = &current_font.0;
+                                        let font_id = current_font.1;
                                         // let filename = maps_dir.join(format!(
                                         //     "{}.toml",
                                         //     basename_for_font(font_id, base_font_name)
@@ -505,14 +514,9 @@ fn process_textops_in_object(
                                                 replacements.replacement_text,
                                             );
                                         }
-                                        Ok(ret)
-                                    }
+                                        ret
+                                    };
 
-                                    let tmp = get_font_mapping(
-                                        &current_font.0,
-                                        current_font.1,
-                                        maps_dir,
-                                    )?;
                                     font_glyph_mappings.insert(current_font.1, tmp);
                                 }
                                 let current_map =
