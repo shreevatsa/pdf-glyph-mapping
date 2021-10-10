@@ -391,7 +391,16 @@ fn process_textops_in_object(
                 match phase {
                     // Phase 1: Write to file.
                     Phase::Phase1Dump => {
-                        let file = files.get_file(maps_dir, &current_font);
+                        let file = {
+                            files.file.entry(current_font.1).or_insert_with(|| {
+                                let filename = std::path::Path::new(maps_dir).join(
+                                    basename_for_font(current_font.1, &current_font.0) + ".Tjs",
+                                );
+                                println!("Creating file: {:?}", filename);
+                                std::fs::create_dir_all(maps_dir.clone()).unwrap();
+                                File::create(filename).unwrap()
+                            })
+                        };
                         let glyph_hexes: Vec<String> =
                             glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
                         glyph_hexes
@@ -609,21 +618,6 @@ fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
 }
 struct TjFiles {
     file: HashMap<lopdf::ObjectId, File>,
-}
-impl TjFiles {
-    fn get_file(
-        &mut self,
-        maps_dir: &std::path::PathBuf,
-        font_id: &(String, ObjectId),
-    ) -> &mut File {
-        self.file.entry(font_id.1).or_insert_with(|| {
-            let filename = std::path::Path::new(maps_dir)
-                .join(basename_for_font(font_id.1, &font_id.0) + ".Tjs");
-            println!("Creating file: {:?}", filename);
-            std::fs::create_dir_all(maps_dir.clone()).unwrap();
-            File::create(filename).unwrap()
-        })
-    }
 }
 
 fn real_font_id(
