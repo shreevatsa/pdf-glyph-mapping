@@ -24,25 +24,6 @@ macro_rules! indent {
     };
 }
 
-/// The PDF format expects a particular encoding for Unicode strings:
-/// •   Start with the first two bytes being 254 and 255 (FEFF).
-/// •   Follow up with the encoding of the string into UTF16-BE.
-/// You can see this in the PDF 1.7 spec:
-/// •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-/// •   "7.9.2.2 Text String Type" (immediately following the above).
-/// •   ~~"7.3.4.2 Literal Strings" (p. 15, PDF page 23).~~
-fn pdf_encode_unicode_text_string(mytext: &str) -> Vec<u8> {
-    let mut bytes: Vec<u8> = vec![254, 255];
-    for usv in mytext.encode_utf16() {
-        let two_bytes = usv.to_be_bytes();
-        assert_eq!(two_bytes.len(), 2);
-        for byte in &two_bytes {
-            bytes.push(*byte);
-        }
-    }
-    bytes
-}
-
 struct TextState {
     current_font: (String, ObjectId),
     // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
@@ -695,4 +676,23 @@ impl std::str::FromStr for Phase {
             Ok(Phase::Phase1Dump)
         }
     }
+}
+
+/// The PDF format expects a particular encoding for Unicode strings:
+/// •   Start with the first two bytes being 254 and 255 (FEFF).
+/// •   Follow up with the encoding of the string into UTF16-BE.
+/// You can see this in the PDF 1.7 spec:
+/// •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
+/// •   "7.9.2.2 Text String Type" (immediately following the above).
+/// •   ~~"7.3.4.2 Literal Strings" (p. 15, PDF page 23).~~
+fn pdf_encode_unicode_text_string(mytext: &str) -> Vec<u8> {
+    let mut bytes: Vec<u8> = vec![254, 255];
+    for usv in mytext.encode_utf16() {
+        let two_bytes = usv.to_be_bytes();
+        assert_eq!(two_bytes.len(), 2);
+        for byte in &two_bytes {
+            bytes.push(*byte);
+        }
+    }
+    bytes
 }
