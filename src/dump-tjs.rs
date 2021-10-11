@@ -289,6 +289,7 @@ impl OpHandler {
             }
         }
     }
+
     fn handle_text_showing_operator(
         &mut self,
         op: &lopdf::content::Operation,
@@ -363,7 +364,6 @@ fn main() -> Result<()> {
 
     if let Phase::Phase1Dump = opts.phase {
         // For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
-        let document = &document;
         let maps_dir = opts.maps_dir.clone();
         for (object_id, object) in &document.objects {
             if let Ok(dict) = object.as_dict() {
@@ -431,30 +431,10 @@ fn main() -> Result<()> {
     }
 
     // let guard = pprof::ProfilerGuard::new(100)?;
-    /* _process_textops_in_doc(
-        &mut document,
-        &opts.maps_dir,
-        &mut files,
-        &opts.phase,
-        opts.output_pdf_file,
-        opts.page,
-        opts.debug as usize,
-    )?;
-    /// For each object in `document`, call `process_textops_in_object`.
-    /// The main job is to find, for each page, its resource objects and content streams.
-    fn _process_textops_in_doc(
-        document: &mut lopdf::Document,
-        maps_dir: &std::path::PathBuf,
-        files: &mut TjFiles,
-        phase: &Phase,
-        output_pdf_file: Option<std::path::PathBuf>,
-        chosen_page_number: Option<u32>,
-        debug_depth: usize,
-    ) -> Result<()> */
+
+    // For each object in `document`, call `process_textops_in_object`.
+    // The main job is to find, for each page, its resource objects and content streams.
     {
-        let document = &mut document;
-        let output_pdf_file = opts.output_pdf_file;
-        let chosen_page_number = opts.page;
         let debug_depth = opts.debug as usize;
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
@@ -472,7 +452,7 @@ fn main() -> Result<()> {
             phase: opts.phase,
         };
         for (page_num, page_id) in pages {
-            if let Some(p) = chosen_page_number {
+            if let Some(p) = opts.page {
                 if page_num != p {
                     continue;
                 };
@@ -518,7 +498,7 @@ fn main() -> Result<()> {
             for object_id in content_streams {
                 process_textops_in_object(
                     object_id,
-                    document,
+                    &mut document,
                     &fonts,
                     &xobjects_dict,
                     debug_depth + (debug_depth > 0) as usize,
@@ -538,7 +518,7 @@ fn main() -> Result<()> {
                 }
                 let _ = std::fs::write(map_filename, toml::to_vec(&map_for_toml)?);
             }
-            if let Some(output_pdf_filename) = output_pdf_file {
+            if let Some(output_pdf_filename) = opts.output_pdf_file {
                 println!("Creating file: {:?}", output_pdf_filename);
                 document.save(output_pdf_filename)?;
             } else {
