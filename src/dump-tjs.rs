@@ -249,7 +249,7 @@ impl TextState {
 }
 
 struct OpVisitor {
-    text_state: std::cell::Cell<TextState>,
+    text_state: TextState,
     maps_dir: std::path::PathBuf,
     files: TjFiles,
     font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>>,
@@ -269,9 +269,9 @@ impl OpVisitor {
         let op = content.operations[*i].clone();
         match op.operator.as_str() {
             // Setting a new font.
-            "Tf" => self.text_state.get_mut().visit_Tf(&op, get_font_from_name),
+            "Tf" => self.text_state.visit_Tf(&op, get_font_from_name),
             // Setting font matrix.
-            "Tm" => self.text_state.get_mut().visit_Tm(&op, debug_depth),
+            "Tm" => self.text_state.visit_Tm(&op, debug_depth),
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 self.visit_text_showing_operator(&op, content, i);
@@ -296,13 +296,13 @@ impl OpVisitor {
         let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
         match self.phase {
             // Phase 1: Write to file.
-            Phase::Phase1Dump => self.text_state.get_mut().visit_text_showing_operator_dump(
+            Phase::Phase1Dump => self.text_state.visit_text_showing_operator_dump(
                 &glyph_ids,
                 &self.maps_dir,
                 &mut self.files,
             ),
             Phase::Phase2Fix => {
-                let dict = self.text_state.get_mut().visit_text_showing_operator_wrap(
+                let dict = self.text_state.visit_text_showing_operator_wrap(
                     &glyph_ids,
                     &self.maps_dir,
                     &mut self.font_glyph_mappings,
@@ -436,10 +436,10 @@ fn main() -> Result<()> {
         println!("{} pages in this document", pages.len());
         let mut seen_ops = linked_hash_map::LinkedHashMap::new();
         let mut visitor: OpVisitor = OpVisitor {
-            text_state: std::cell::Cell::new(TextState {
+            text_state: TextState {
                 current_font: ("".to_string(), (0, 0)),
                 current_tm_c: 0.0,
-            }),
+            },
             maps_dir: opts.maps_dir,
             files: TjFiles {
                 file: HashMap::new(),
