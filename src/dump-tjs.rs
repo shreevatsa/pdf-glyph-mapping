@@ -51,7 +51,7 @@ struct TextState {
 
 impl TextState {
     #[allow(non_snake_case)]
-    fn handle_Tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
+    fn visit_Tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
     where
         F: FnOnce(&str) -> (String, ObjectId),
     {
@@ -62,7 +62,7 @@ impl TextState {
     }
 
     #[allow(non_snake_case)]
-    fn handle_Tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
+    fn visit_Tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
         assert_eq!(op.operator, "Tm");
         assert_eq!(op.operands.len(), 6);
         self.current_tm_c = match op.operands[2].as_f64() {
@@ -112,7 +112,7 @@ impl TextState {
         text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
     }
 
-    fn handle_text_showing_operator_dump(
+    fn visit_text_showing_operator_dump(
         &self,
         glyph_ids: &[u16],
         maps_dir: &std::path::PathBuf,
@@ -134,7 +134,7 @@ impl TextState {
         file.write_all(b"\n").unwrap();
     }
 
-    fn handle_text_showing_operator_wrap(
+    fn visit_text_showing_operator_wrap(
         &self,
         glyph_ids: &[u16],
         maps_dir: &std::path::PathBuf,
@@ -248,7 +248,7 @@ impl TextState {
     }
 }
 
-struct OpHandler {
+struct OpVisitor {
     text_state: std::cell::Cell<TextState>,
     maps_dir: std::path::PathBuf,
     files: TjFiles,
@@ -256,8 +256,8 @@ struct OpHandler {
     phase: Phase,
 }
 
-impl OpHandler {
-    fn handle_op<F>(
+impl OpVisitor {
+    fn visit_op<F>(
         &mut self,
         content: &mut lopdf::content::Content,
         i: &mut usize,
@@ -269,16 +269,12 @@ impl OpHandler {
         let op = content.operations[*i].clone();
         match op.operator.as_str() {
             // Setting a new font.
-            "Tf" => self.text_state.get_mut().handle_Tf(&op, get_font_from_name),
+            "Tf" => self.text_state.get_mut().visit_Tf(&op, get_font_from_name),
             // Setting font matrix.
-            "Tm" => self.text_state.get_mut().handle_Tm(&op, debug_depth),
+            "Tm" => self.text_state.get_mut().visit_Tm(&op, debug_depth),
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
-                // Call the relevant stuff on text_state, and modify
-                self.handle_text_showing_operator(&op, content, i);
-                // For this to work, handler should contain within it:
-                // text_state maps_dir files (if phase 1) font_glyph_mappings (if phase 2)
-                // That's it?
+                self.visit_text_showing_operator(&op, content, i);
             }
             // None of the cases we care about.
             _ => {
@@ -290,7 +286,7 @@ impl OpHandler {
         }
     }
 
-    fn handle_text_showing_operator(
+    fn visit_text_showing_operator(
         &mut self,
         op: &lopdf::content::Operation,
         content: &mut lopdf::content::Content,
@@ -300,13 +296,13 @@ impl OpHandler {
         let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
         match self.phase {
             // Phase 1: Write to file.
-            Phase::Phase1Dump => self.text_state.get_mut().handle_text_showing_operator_dump(
+            Phase::Phase1Dump => self.text_state.get_mut().visit_text_showing_operator_dump(
                 &glyph_ids,
                 &self.maps_dir,
                 &mut self.files,
             ),
             Phase::Phase2Fix => {
-                let dict = self.text_state.get_mut().handle_text_showing_operator_wrap(
+                let dict = self.text_state.get_mut().visit_text_showing_operator_wrap(
                     &glyph_ids,
                     &self.maps_dir,
                     &mut self.font_glyph_mappings,
@@ -432,14 +428,14 @@ fn main() -> Result<()> {
 
     // let guard = pprof::ProfilerGuard::new(100)?;
 
-    // For each object in `document`, call `process_textops_in_object`.
+    // For each object in `document`, call `visit_ops_in_object`.
     // The main job is to find, for each page, its resource objects and content streams.
     {
         let debug_depth = opts.debug as usize;
         let pages = document.get_pages();
         println!("{} pages in this document", pages.len());
         let mut seen_ops = linked_hash_map::LinkedHashMap::new();
-        let mut handler: OpHandler = OpHandler {
+        let mut visitor: OpVisitor = OpVisitor {
             text_state: std::cell::Cell::new(TextState {
                 current_font: ("".to_string(), (0, 0)),
                 current_tm_c: 0.0,
@@ -496,20 +492,20 @@ fn main() -> Result<()> {
 
             let content_streams = document.get_page_contents(page_id);
             for object_id in content_streams {
-                process_textops_in_object(
+                visit_ops_in_object(
                     object_id,
                     &mut document,
                     &fonts,
                     &xobjects_dict,
                     debug_depth + (debug_depth > 0) as usize,
                     &mut seen_ops,
-                    &mut handler,
+                    &mut visitor,
                 )?;
             }
         }
         println!("Seen the following operators: {:?}", seen_ops);
-        if let Phase::Phase2Fix = handler.phase {
-            for (k, v) in handler.font_glyph_mappings {
+        if let Phase::Phase2Fix = visitor.phase {
+            for (k, v) in visitor.font_glyph_mappings {
                 let map_filename = format!("map-{}-{}.toml", k.0, k.1);
                 println!("Creating file: {:?}", map_filename);
                 let mut map_for_toml: HashMap<String, String> = HashMap::new();
@@ -533,16 +529,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Handle each "interesting" operation inside `object_id`.
+/// Call `visitor.visit_op` for each operation inside `object_id`.
 /// This can call itself, because of the "Do" operator.
-fn process_textops_in_object(
+fn visit_ops_in_object(
     content_stream_object_id: ObjectId,
     document: &mut lopdf::Document,
     fonts: &lopdf::Dictionary,
     xobjects_dict: &lopdf::Dictionary,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
-    handler: &mut OpHandler,
+    visitor: &mut OpVisitor,
 ) -> Result<()> {
     let mut content: lopdf::content::Content = {
         let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
@@ -592,17 +588,17 @@ fn process_textops_in_object(
                 }
                 Err(_) => (&empty_dict, &empty_dict),
             };
-            process_textops_in_object(
+            visit_ops_in_object(
                 object_id,
                 document,
                 &fonts,
                 xobjects_dict,
                 debug_depth + (debug_depth > 0) as usize,
                 seen_ops,
-                handler,
+                visitor,
             )?;
         } else {
-            handler.handle_op(&mut content, &mut i, debug_depth, |font_name: &str| {
+            visitor.visit_op(&mut content, &mut i, debug_depth, |font_name: &str| {
                 let font_id = fonts
                     .get(font_name.as_bytes())
                     .unwrap()
