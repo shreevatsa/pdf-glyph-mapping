@@ -62,17 +62,13 @@ impl TextState {
     }
 
     #[allow(non_snake_case)]
-    fn visit_Tm(&mut self, op: &lopdf::content::Operation, debug_depth: usize) {
+    fn visit_Tm(&mut self, op: &lopdf::content::Operation) {
         assert_eq!(op.operator, "Tm");
         assert_eq!(op.operands.len(), 6);
         self.current_tm_c = match op.operands[2].as_f64() {
             Ok(n) => n,
             Err(_) => op.operands[2].as_i64().unwrap() as f64,
         };
-        if debug_depth > 0 {
-            indent!(debug_depth);
-            println!("slant is now: {} from {:?}", self.current_tm_c, op.operands);
-        }
     }
 
     /// For the PDF text-showing operators (Tj ' " TJ), convert the operand into a vector (the glyph ids in the font).
@@ -261,7 +257,6 @@ impl OpVisitor {
         &mut self,
         content: &mut lopdf::content::Content,
         i: &mut usize,
-        debug_depth: usize,
         get_font_from_name: F,
     ) where
         F: FnOnce(&str) -> (String, ObjectId),
@@ -271,7 +266,7 @@ impl OpVisitor {
             // Setting a new font.
             "Tf" => self.text_state.visit_Tf(&op, get_font_from_name),
             // Setting font matrix.
-            "Tm" => self.text_state.visit_Tm(&op, debug_depth),
+            "Tm" => self.text_state.visit_Tm(&op),
             // An actual text-showing operator.
             "Tj" | "TJ" | "'" | "\"" => {
                 self.visit_text_showing_operator(&op, content, i);
@@ -598,7 +593,7 @@ fn visit_ops_in_object(
                 visitor,
             )?;
         } else {
-            visitor.visit_op(&mut content, &mut i, debug_depth, |font_name: &str| {
+            visitor.visit_op(&mut content, &mut i, |font_name: &str| {
                 let font_id = fonts
                     .get(font_name.as_bytes())
                     .unwrap()
