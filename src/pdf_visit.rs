@@ -125,7 +125,7 @@ fn visit_ops_in_object(
             println!("Operator: {}", operator);
         }
 
-        // No great alternative yet: https://stackoverflow.com/questions/51542024/how-do-i-use-the-entry-api-with-an-expensive-key-that-is-only-constructed-if-the
+        // No great alternative for these 4 lines yet! https://stackoverflow.com/questions/51542024/how-do-i-use-the-entry-api-with-an-expensive-key-that-is-only-constructed-if-the
         if !seen_ops.contains_key(operator) {
             seen_ops.insert(operator.clone(), 0);
         }
@@ -179,7 +179,7 @@ fn visit_ops_in_object(
                     .as_reference()
                     .unwrap();
                 // println!("Switching to font {}, which means {:?}", font_name, font_id);
-                crate::real_font_id(font_id, document).unwrap()
+                font_descriptor_id(font_id, document).unwrap()
             })
         }
         i += 1;
@@ -190,4 +190,63 @@ fn visit_ops_in_object(
         .as_stream_mut()?
         .set_content(content.encode()?);
     Ok(())
+}
+
+/// For instance, given "15454 0", returns ("APZKLW+NotoSansDevanagari-Bold", "40531 0"), in this example:
+/// ...
+///
+/// /F4 15454 0 R
+///
+/// ...
+///
+/// 15454 0 obj
+/// <<
+///   /BaseFont /APZKLW+NotoSansDevanagari-Bold
+///   /DescendantFonts [ 40495 0 R ]
+///   /Encoding /Identity-H
+///   /Subtype /Type0
+///   /ToUnicode 40496 0 R
+///   /Type /Font
+/// >>
+/// endobj
+///
+/// ...
+///
+/// 40495 0 obj
+/// <<
+///   /BaseFont /APZKLW+NotoSansDevanagari-Bold
+///   /CIDSystemInfo <<
+///     /Ordering (Identity)
+///     /Registry (Adobe)
+///     /Supplement 0
+///   >>
+///   /CIDToGIDMap /Identity
+///   /DW 0
+///   /FontDescriptor 40531 0 R
+///   /Subtype /CIDFontType2
+///   /Type /Font
+///
+/// ...
+pub fn font_descriptor_id(
+    font_reference_id: lopdf::ObjectId,
+    document: &lopdf::Document,
+) -> anyhow::Result<(String, lopdf::ObjectId)> {
+    let referenced_font = document.get_object(font_reference_id)?.as_dict()?;
+    let base_font_name = referenced_font.get(b"BaseFont")?.as_name_str()?.to_string();
+    if let Ok(descendant_fonts_object) = referenced_font.get(b"DescendantFonts") {
+        let descendant_fonts = descendant_fonts_object.as_array()?;
+        assert_eq!(descendant_fonts.len(), 1);
+        let descendant_font = document
+            .get_object(descendant_fonts[0].as_reference()?)?
+            .as_dict()?;
+        Ok((
+            base_font_name,
+            descendant_font.get(b"FontDescriptor")?.as_reference()?,
+        ))
+    } else {
+        Ok((
+            base_font_name,
+            referenced_font.get(b"FontDescriptor")?.as_reference()?,
+        ))
+    }
 }

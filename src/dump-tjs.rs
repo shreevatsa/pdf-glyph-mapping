@@ -332,7 +332,8 @@ fn main() -> Result<()> {
         for (object_id, object) in &document.objects {
             if let Ok(dict) = object.as_dict() {
                 if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
-                    let (base_font_name, font_id) = real_font_id(*object_id, &document)?;
+                    let (base_font_name, font_id) =
+                        pdf_visit::font_descriptor_id(*object_id, &document)?;
                     // map from glyph id (as 4-digit hex string) to set of codepoints.
                     // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
                     let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
@@ -449,67 +450,6 @@ struct TjFiles {
     file: HashMap<lopdf::ObjectId, File>,
 }
 
-fn real_font_id(
-    font_reference_id: ObjectId,
-    document: &lopdf::Document,
-) -> Result<(String, ObjectId)> {
-    /*
-    For instance, given "15454 0", returns ("APZKLW+NotoSansDevanagari-Bold", "40531 0"), in this example:
-    ...
-
-    /F4 15454 0 R
-
-    ...
-
-    15454 0 obj
-    <<
-      /BaseFont /APZKLW+NotoSansDevanagari-Bold
-      /DescendantFonts [ 40495 0 R ]
-      /Encoding /Identity-H
-      /Subtype /Type0
-      /ToUnicode 40496 0 R
-      /Type /Font
-    >>
-    endobj
-
-    ...
-
-    40495 0 obj
-    <<
-      /BaseFont /APZKLW+NotoSansDevanagari-Bold
-      /CIDSystemInfo <<
-        /Ordering (Identity)
-        /Registry (Adobe)
-        /Supplement 0
-      >>
-      /CIDToGIDMap /Identity
-      /DW 0
-      /FontDescriptor 40531 0 R
-      /Subtype /CIDFontType2
-      /Type /Font
-
-    ...
-    */
-    let referenced_font = document.get_object(font_reference_id)?.as_dict()?;
-    let base_font_name = referenced_font.get(b"BaseFont")?.as_name_str()?.to_string();
-    if let Ok(descendant_fonts_object) = referenced_font.get(b"DescendantFonts") {
-        let descendant_fonts = descendant_fonts_object.as_array()?;
-        assert_eq!(descendant_fonts.len(), 1);
-        let descendant_font = document
-            .get_object(descendant_fonts[0].as_reference()?)?
-            .as_dict()?;
-        Ok((
-            base_font_name,
-            descendant_font.get(b"FontDescriptor")?.as_reference()?,
-        ))
-    } else {
-        Ok((
-            base_font_name,
-            referenced_font.get(b"FontDescriptor")?.as_reference()?,
-        ))
-    }
-}
-
 fn from_two_bytes(bytes: &[u8]) -> u16 {
     assert_eq!(bytes.len(), 2);
     (bytes[0] as u16) * 256 + (bytes[1] as u16)
@@ -526,13 +466,13 @@ impl std::str::FromStr for Phase {
     }
 }
 
-/// The PDF format expects a particular encoding for Unicode strings:
-/// •   Start with the first two bytes being 254 and 255 (FEFF).
-/// •   Follow up with the encoding of the string into UTF16-BE.
-/// You can see this in the PDF 1.7 spec:
-/// •   "7.9.2 String Object Types" (p. 85, PDF page 93), especially Table 35 and Figure 7.
-/// •   "7.9.2.2 Text String Type" (immediately following the above).
-/// •   ~~"7.3.4.2 Literal Strings" (p. 15, PDF page 23).~~
+/// The PDF format expects a particular encoding for Unicode strings:  
+/// -   Start with the first two bytes being 254 and 255 (FEFF).  
+/// -   Follow up with the encoding of the string into UTF16-BE.  
+/// You can see this in the PDF 1.7 spec:  
+/// -   *"7.9.2 String Object Types"* (p. 85, PDF page 93), especially Table 35 and Figure 7.  
+/// -   *"7.9.2.2 Text String Type"* (immediately following the above).  
+/// -   ~~"7.3.4.2 Literal Strings" (p. 15, PDF page 23).~~
 fn pdf_encode_unicode_text_string(mytext: &str) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![254, 255];
     for usv in mytext.encode_utf16() {
