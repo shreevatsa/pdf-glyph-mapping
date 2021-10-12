@@ -397,9 +397,8 @@ fn main() -> Result<()> {
     // let guard = pprof::ProfilerGuard::new(100)?;
 
     {
-        let debug_depth = opts.debug as usize;
         let mut visitor = MyOpVisitor {
-            text_state: crate::TextState {
+            text_state: TextState {
                 current_font: ("".to_string(), (0, 0)),
                 current_tm_c: 0.0,
             },
@@ -414,7 +413,7 @@ fn main() -> Result<()> {
             &mut document,
             &mut visitor,
             opts.page,
-            debug_depth,
+            opts.debug,
         );
         if let Phase::Phase2Fix = visitor.phase {
             for (k, v) in visitor.font_glyph_mappings {
