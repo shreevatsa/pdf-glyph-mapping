@@ -47,7 +47,7 @@ fn main() -> Result<()> {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     if let Phase::Phase1Dump = opts.phase {
-        let _ = text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone());
+        text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone()).unwrap();
     }
 
     // let guard = pprof::ProfilerGuard::new(100)?;
@@ -65,12 +65,13 @@ fn main() -> Result<()> {
             font_glyph_mappings: HashMap::new(),
             phase: opts.phase.clone(),
         };
-        let _ = pdf_visit::visit_page_content_stream_ops(
+        pdf_visit::visit_page_content_stream_ops(
             &mut document,
             &mut visitor,
             opts.page,
             opts.debug,
-        );
+        )
+        .unwrap();
         if let Phase::Phase2Fix = opts.phase {
             visitor.dump_font_glyph_mappings();
             if let Some(output_pdf_filename) = opts.output_pdf_file {
