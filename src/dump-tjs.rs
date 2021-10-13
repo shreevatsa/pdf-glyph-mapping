@@ -7,8 +7,7 @@ use anyhow::Result;
 use clap::Clap;
 use std::collections::HashMap;
 
-use text_state::{MyOpVisitor, TextState};
-
+mod pdf_visit;
 mod text_state;
 
 #[derive(Clone)]
@@ -16,8 +15,6 @@ pub enum Phase {
     Phase1Dump,
     Phase2Fix,
 }
-
-mod pdf_visit;
 
 /// Parse a PDF file either to dump text operations (Tj etc) in it,
 /// or to "fix" all text by surrounding them with /ActualText.
@@ -56,8 +53,8 @@ fn main() -> Result<()> {
     // let guard = pprof::ProfilerGuard::new(100)?;
 
     {
-        let mut visitor = MyOpVisitor {
-            text_state: TextState {
+        let mut visitor = text_state::MyOpVisitor {
+            text_state: text_state::TextState {
                 current_font: ("".to_string(), (0, 0)),
                 current_tm_c: 0.0,
             },
