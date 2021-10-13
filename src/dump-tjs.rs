@@ -35,6 +35,9 @@ fn main() -> Result<()> {
         /// The directory for either the maps to dump (Phase 1), or maps to read (Phase 2).
         maps_dir: std::path::PathBuf,
         output_pdf_file: Option<std::path::PathBuf>,
+        /// Run the profiler. May cause SIGSEGV: https://github.com/tikv/pprof-rs/issues/76
+        #[clap(long)]
+        profile: bool,
     }
 
     let opts = Opts::parse();
@@ -50,7 +53,10 @@ fn main() -> Result<()> {
         text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone()).unwrap();
     }
 
-    // let guard = pprof::ProfilerGuard::new(100)?;
+    let guard = match opts.profile {
+        true => pprof::ProfilerGuard::new(100).ok(),
+        false => None,
+    };
 
     {
         let mut visitor = text_state::MyOpVisitor {
@@ -83,10 +89,12 @@ fn main() -> Result<()> {
         }
     }
 
-    // if let Ok(report) = guard.report().build() {
-    //     let file = File::create("flamegraph.svg")?;
-    //     report.flamegraph(file)?;
-    // };
+    if let Some(guard) = guard {
+        if let Ok(report) = guard.report().build() {
+            let file = std::fs::File::create("flamegraph.svg")?;
+            report.flamegraph(file)?;
+        }
+    }
     Ok(())
 }
 
