@@ -188,6 +188,7 @@ fn visit_ops_in_object(
                     .as_reference()
                     .unwrap();
                 println!("Switching to font {}, which means {:?}", font_name, font_id);
+
                 font_descriptor_id(font_id, document).unwrap()
             })
         }
@@ -242,36 +243,39 @@ pub fn font_descriptor_id(
 ) -> anyhow::Result<(String, lopdf::ObjectId)> {
     let referenced_font = ok!(ok!(document.get_object(font_reference_id)).as_dict());
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
-    if let Ok(descendant_fonts_object) = referenced_font.get(b"DescendantFonts") {
-        fn follow_to_dict<'a>(
-            document: &'a lopdf::Document,
-            object: &'a lopdf::Object,
-        ) -> anyhow::Result<&'a lopdf::Dictionary> {
-            match object {
-                lopdf::Object::Dictionary(d) => Ok(&d),
-                lopdf::Object::Reference(r) => {
-                    follow_to_dict(document, ok!(document.get_object(*r)))
-                }
-                lopdf::Object::Array(arr) => {
-                    assert_eq!(arr.len(), 1);
-                    follow_to_dict(
-                        document,
-                        ok!(document.get_object(ok!(arr[0].as_reference()))),
-                    )
-                }
-                _ => unimplemented!(),
-            }
-        }
 
-        let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
-        Ok((
-            base_font_name,
-            ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
-        ))
-    } else {
-        Ok((
+    // Simple case: no descendants.
+    if !referenced_font.has(b"DescendantFonts") {
+        return Ok((
             base_font_name,
             ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
-        ))
+        ));
     }
+
+    // Otherwise, we have descendant fonts. Follow them (it).
+    let descendant_fonts_object = referenced_font.get(b"DescendantFonts").unwrap();
+    let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
+
+    fn follow_to_dict<'a>(
+        document: &'a lopdf::Document,
+        object: &'a lopdf::Object,
+    ) -> anyhow::Result<&'a lopdf::Dictionary> {
+        match object {
+            lopdf::Object::Dictionary(d) => Ok(&d),
+            lopdf::Object::Reference(r) => follow_to_dict(document, ok!(document.get_object(*r))),
+            lopdf::Object::Array(arr) => {
+                assert_eq!(arr.len(), 1);
+                follow_to_dict(
+                    document,
+                    ok!(document.get_object(ok!(arr[0].as_reference()))),
+                )
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    Ok((
+        base_font_name,
+        ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
+    ))
 }
