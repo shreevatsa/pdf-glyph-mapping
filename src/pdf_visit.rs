@@ -170,7 +170,7 @@ fn visit_ops_in_object(
                 visitor,
             )?;
         } else {
-            // TODO: Change this interface. Maybe visit Tf right here, or pass in a map (`real_font_id` need not be recomputed?), or something.
+            // TODO: Change this interface. Maybe visit Tf right here, or pass in a map, or something.
             visitor.visit_op(&mut content, &mut i, &|font_name: &str| {
                 let font_id = fonts
                     .unwrap()
