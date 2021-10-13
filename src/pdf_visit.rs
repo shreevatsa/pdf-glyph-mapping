@@ -8,6 +8,15 @@ macro_rules! indent {
     };
 }
 
+macro_rules! ok {
+    ($result:expr) => {
+        $result.map_err(|err| {
+            println!("Error at line {} column {}: {}", line!(), column!(), err);
+            err
+        })?
+    };
+}
+
 pub trait OpVisitor {
     fn visit_op(
         &mut self,
@@ -178,7 +187,7 @@ fn visit_ops_in_object(
                     .unwrap()
                     .as_reference()
                     .unwrap();
-                // println!("Switching to font {}, which means {:?}", font_name, font_id);
+                println!("Switching to font {}, which means {:?}", font_name, font_id);
                 font_descriptor_id(font_id, document).unwrap()
             })
         }
@@ -231,22 +240,38 @@ pub fn font_descriptor_id(
     font_reference_id: lopdf::ObjectId,
     document: &lopdf::Document,
 ) -> anyhow::Result<(String, lopdf::ObjectId)> {
-    let referenced_font = document.get_object(font_reference_id)?.as_dict()?;
-    let base_font_name = referenced_font.get(b"BaseFont")?.as_name_str()?.to_string();
+    let referenced_font = ok!(ok!(document.get_object(font_reference_id)).as_dict());
+    let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
     if let Ok(descendant_fonts_object) = referenced_font.get(b"DescendantFonts") {
-        let descendant_fonts = descendant_fonts_object.as_array()?;
-        assert_eq!(descendant_fonts.len(), 1);
-        let descendant_font = document
-            .get_object(descendant_fonts[0].as_reference()?)?
-            .as_dict()?;
+        fn follow_to_dict<'a>(
+            document: &'a lopdf::Document,
+            object: &'a lopdf::Object,
+        ) -> anyhow::Result<&'a lopdf::Dictionary> {
+            match object {
+                lopdf::Object::Dictionary(d) => Ok(&d),
+                lopdf::Object::Reference(r) => {
+                    follow_to_dict(document, ok!(document.get_object(*r)))
+                }
+                lopdf::Object::Array(arr) => {
+                    assert_eq!(arr.len(), 1);
+                    follow_to_dict(
+                        document,
+                        ok!(document.get_object(ok!(arr[0].as_reference()))),
+                    )
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
         Ok((
             base_font_name,
-            descendant_font.get(b"FontDescriptor")?.as_reference()?,
+            ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
         ))
     } else {
         Ok((
             base_font_name,
-            referenced_font.get(b"FontDescriptor")?.as_reference()?,
+            ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
         ))
     }
 }

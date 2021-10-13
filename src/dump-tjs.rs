@@ -15,6 +15,16 @@ pub enum Phase {
     Phase1Dump,
     Phase2Fix,
 }
+impl std::str::FromStr for Phase {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s == "phase2" {
+            Ok(Phase::Phase2Fix)
+        } else {
+            Ok(Phase::Phase1Dump)
+        }
+    }
+}
 
 /// Parse a PDF file either to dump text operations (Tj etc) in it,
 /// or to "fix" all text by surrounding them with /ActualText.
@@ -50,7 +60,7 @@ fn main() -> Result<()> {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     if let Phase::Phase1Dump = opts.phase {
-        text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone()).unwrap();
+        text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone()).unwrap_or(());
     }
 
     let guard = match opts.profile {
@@ -96,15 +106,4 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
-}
-
-impl std::str::FromStr for Phase {
-    type Err = std::num::ParseIntError;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s == "phase2" {
-            Ok(Phase::Phase2Fix)
-        } else {
-            Ok(Phase::Phase1Dump)
-        }
-    }
 }

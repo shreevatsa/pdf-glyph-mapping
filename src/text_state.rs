@@ -65,6 +65,7 @@ impl TextState {
                         // "If it is a number, the operator shall adjust the text position by that amount; that is, it shall translate the text matrix, Tm."
                         // We don't care about this right now.
                         lopdf::Object::Real(_) => {}
+                        lopdf::Object::Integer(_) => {}
                         _ => assert!(false, "Unexpected per PDF spec: {:#?}", element),
                     }
                 }
@@ -229,6 +230,7 @@ impl MyOpVisitor {
         i: &mut usize,
     ) {
         // First get the list of glyph_ids for this operator.
+        // TODO: If current_font is not a composite font, then use a different function?
         let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
         match self.phase {
             // Phase 1: Write to file.
