@@ -179,7 +179,7 @@ impl TextState {
                             glyph_id, current_font.0
                         );
                         println!("Nevermind, enter replacement text now:");
-                        let replacement: String = text_io::read!("{}\n");
+                        let replacement: String = text_io::read!("{}\n"); // Quiet alternative: format!("[glyph{:04X}]", glyph_id);
                         println!("Thanks, using replacement #{}#", replacement);
                         current_map.insert(*glyph_id, replacement.clone());
                         replacement
