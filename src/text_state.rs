@@ -11,7 +11,7 @@ use serde_derive::Deserialize;
 use crate::{pdf_visit, Phase};
 
 pub struct TextState {
-    pub current_font: (String, lopdf::ObjectId),
+    pub current_font: pdf_visit::Font,
     // Hack: Keeping track of the current Tm matrix, just its third component will do for now.
     pub current_tm_c: f64,
 }
@@ -20,7 +20,7 @@ impl TextState {
     #[allow(non_snake_case)]
     fn visit_Tf<F>(&mut self, op: &lopdf::content::Operation, get_font_from_name: F)
     where
-        F: FnOnce(&str) -> (String, lopdf::ObjectId),
+        F: FnOnce(&str) -> pdf_visit::Font,
     {
         assert_eq!(op.operator, "Tf");
         assert_eq!(op.operands.len(), 2); // font name (key in Font subdictionary of resource dictionary) and size.
@@ -84,13 +84,20 @@ impl TextState {
     ) {
         let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
         let file = {
-            files.file.entry(self.current_font.1).or_insert_with(|| {
-                let filename = std::path::Path::new(maps_dir)
-                    .join(basename_for_font(self.current_font.1, &self.current_font.0) + ".Tjs");
-                println!("Creating file: {:?}", filename);
-                std::fs::create_dir_all(maps_dir.clone()).unwrap();
-                std::fs::File::create(filename).unwrap()
-            })
+            files
+                .file
+                .entry(self.current_font.font_descriptor_id)
+                .or_insert_with(|| {
+                    let filename = std::path::Path::new(maps_dir).join(
+                        basename_for_font(
+                            self.current_font.font_descriptor_id,
+                            &self.current_font.base_font_name,
+                        ) + ".Tjs",
+                    );
+                    println!("Creating file: {:?}", filename);
+                    std::fs::create_dir_all(maps_dir.clone()).unwrap();
+                    std::fs::File::create(filename).unwrap()
+                })
         };
         glyph_hexes
             .iter()
@@ -117,10 +124,10 @@ impl TextState {
         // The string that be encoded into /ActualText surrounding those glyphs.
         let mytext = {
             // println!("Looking up font {:?}", current_font);
-            if !font_glyph_mappings.contains_key(&current_font.1) {
+            if !font_glyph_mappings.contains_key(&current_font.font_descriptor_id) {
                 let font_glyph_mapping = {
-                    let base_font_name = &current_font.0;
-                    let font_id = current_font.1;
+                    let base_font_name = &current_font.base_font_name;
+                    let font_id = current_font.font_descriptor_id;
                     // let filename = maps_dir.join(format!(
                     //     "{}.toml",
                     //     basename_for_font(font_id, base_font_name)
@@ -164,9 +171,11 @@ impl TextState {
                     ret
                 };
 
-                font_glyph_mappings.insert(current_font.1, font_glyph_mapping);
+                font_glyph_mappings.insert(current_font.font_descriptor_id, font_glyph_mapping);
             }
-            let current_map = font_glyph_mappings.get_mut(&current_font.1).unwrap();
+            let current_map = font_glyph_mappings
+                .get_mut(&current_font.font_descriptor_id)
+                .unwrap();
 
             let actual_text_string = glyph_ids
                 .iter()
@@ -176,7 +185,7 @@ impl TextState {
                     } else {
                         println!(
                             "No mapping found for glyph {:04X} in font {}!",
-                            glyph_id, current_font.0
+                            glyph_id, current_font.base_font_name
                         );
                         println!("Nevermind, enter replacement text now:");
                         let replacement: String = text_io::read!("{}\n"); // Quiet alternative: format!("[glyph{:04X}]", glyph_id);
@@ -189,7 +198,7 @@ impl TextState {
             // Hack: Surround the ActualText with the font name. Better would be to do this in the equivalent of `pdftotext`.
             let actual_text_string = format!(
                 "[{}]{}[/{}]",
-                current_font.0, actual_text_string, current_font.0
+                current_font.base_font_name, actual_text_string, current_font.base_font_name
             );
             if self.current_tm_c > 0.0 {
                 "[sl]".to_owned() + &actual_text_string + "[/sl]"
@@ -278,7 +287,7 @@ impl pdf_visit::OpVisitor for MyOpVisitor {
         &mut self,
         content: &mut lopdf::content::Content,
         i: &mut usize,
-        get_font_from_name: &dyn Fn(&str) -> (String, lopdf::ObjectId),
+        get_font_from_name: &dyn Fn(&str) -> pdf_visit::Font,
     ) {
         let op = content.operations[*i].clone();
         match op.operator.as_str() {
@@ -341,7 +350,10 @@ pub fn dump_unicode_mappings(
     for (_object_id, object) in &document.objects {
         if let Ok(dict) = object.as_dict() {
             if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
-                let (base_font_name, font_id) = pdf_visit::font_descriptor_id(dict, &document)?;
+                let pdf_visit::Font {
+                    base_font_name,
+                    font_descriptor_id,
+                } = pdf_visit::font_descriptor_id(dict, &document)?;
                 // map from glyph id (as 4-digit hex string) to set of codepoints.
                 // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
                 let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
@@ -383,19 +395,19 @@ pub fn dump_unicode_mappings(
                 }
                 if mapped.len() > 0 {
                     std::fs::create_dir_all(maps_dir.clone())?;
-                    let filename =
-                        maps_dir.join(basename_for_font(font_id, &base_font_name) + ".toml");
+                    let filename = maps_dir
+                        .join(basename_for_font(font_descriptor_id, &base_font_name) + ".toml");
                     println!(
                         "Creating file {:?} for Font {:?} ({}) with {} mappings",
                         filename,
-                        font_id,
+                        font_descriptor_id,
                         base_font_name,
                         mapped.len()
                     );
                     let toml_string = toml::to_string(&mapped)?;
                     std::fs::write(filename, toml_string)?;
                 } else {
-                    println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_id, base_font_name);
+                    println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_descriptor_id, base_font_name);
                 }
             }
         }

@@ -21,12 +21,17 @@ macro_rules! ok {
     };
 }
 
+pub struct Font {
+    pub base_font_name: String,
+    pub font_descriptor_id: ObjectId,
+}
+
 pub trait OpVisitor {
     fn visit_op(
         &mut self,
         content: &mut lopdf::content::Content,
         i: &mut usize,
-        get_font_from_name: &dyn Fn(&str) -> (String, lopdf::ObjectId),
+        get_font_from_name: &dyn Fn(&str) -> Font,
     );
 }
 
@@ -262,20 +267,23 @@ fn visit_ops_in_object(
 pub fn font_descriptor_id(
     referenced_font: &lopdf::Dictionary,
     document: &lopdf::Document,
-) -> anyhow::Result<(String, lopdf::ObjectId)> {
+) -> anyhow::Result<Font> {
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
     // Simple case: no descendants.
     if !referenced_font.has(b"DescendantFonts") {
-        return Ok((
+        return Ok(Font {
             base_font_name,
-            ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
-        ));
+            font_descriptor_id: ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
+        });
     }
 
-    // Otherwise, we have DescendantFonts, always a one-element array (see table 121). Follow it.
+    // Otherwise, we have DescendantFonts, always a one-element array (see table 121 in PDF32000_2008.pdf). Follow it.
     let descendant_fonts_object = referenced_font.get(b"DescendantFonts").unwrap();
+    match descendant_fonts_object {
+        lopdf::Object::Array(arr) => assert_eq!(arr.len(), 1),
+        _ => assert!(false, "Expected a one-element array."),
+    }
     let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
-
     fn follow_to_dict<'a>(
         document: &'a lopdf::Document,
         object: &'a lopdf::Object,
@@ -294,8 +302,8 @@ pub fn font_descriptor_id(
         }
     }
 
-    Ok((
+    Ok(Font {
         base_font_name,
-        ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
-    ))
+        font_descriptor_id: ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
+    })
 }

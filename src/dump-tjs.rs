@@ -71,7 +71,10 @@ fn main() -> Result<()> {
     {
         let mut visitor = text_state::MyOpVisitor {
             text_state: text_state::TextState {
-                current_font: ("".to_string(), (0, 0)),
+                current_font: pdf_visit::Font {
+                    base_font_name: "".to_string(),
+                    font_descriptor_id: (0, 0),
+                },
                 current_tm_c: 0.0,
             },
             maps_dir: opts.maps_dir,
