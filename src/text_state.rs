@@ -338,11 +338,10 @@ pub fn dump_unicode_mappings(
     document: &mut lopdf::Document,
     maps_dir: std::path::PathBuf,
 ) -> anyhow::Result<()> {
-    for (object_id, object) in &document.objects {
+    for (_object_id, object) in &document.objects {
         if let Ok(dict) = object.as_dict() {
             if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
-                let (base_font_name, font_id) =
-                    pdf_visit::font_descriptor_id(*object_id, &document)?;
+                let (base_font_name, font_id) = pdf_visit::font_descriptor_id(dict, &document)?;
                 // map from glyph id (as 4-digit hex string) to set of codepoints.
                 // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
                 let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();

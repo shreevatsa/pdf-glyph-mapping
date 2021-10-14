@@ -1,3 +1,7 @@
+use std::collections::BTreeMap;
+
+use lopdf::{Dictionary, Document, Object, ObjectId};
+
 macro_rules! indent {
     ($depth:ident) => {
         print!(
@@ -26,6 +30,40 @@ pub trait OpVisitor {
     );
 }
 
+// Copied from lopdf document.rs, and modified.
+fn collect_fonts_from_resources<'a>(
+    resources: &'a Dictionary,
+    fonts: &mut BTreeMap<Vec<u8>, Dictionary>,
+    doc: &'a Document,
+) {
+    if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
+        for (name, value) in font_dict.iter() {
+            let font = match *value {
+                Object::Reference(id) => doc.get_dictionary(id).ok(),
+                Object::Dictionary(ref dict) => Some(dict),
+                _ => None,
+            };
+            if !fonts.contains_key(name) {
+                println!("Cloning this font dictionary: {:?}", font);
+                font.map(|font| fonts.insert(name.clone(), font.clone()));
+            }
+        }
+    }
+}
+fn get_page_fonts(document: &Document, page_id: ObjectId) -> BTreeMap<Vec<u8>, Dictionary> {
+    let mut fonts = BTreeMap::new();
+    let (resource_dict, resource_ids) = document.get_page_resources(page_id);
+    if let Some(resources) = resource_dict {
+        collect_fonts_from_resources(resources, &mut fonts, document);
+    }
+    for resource_id in resource_ids {
+        if let Ok(resources) = document.get_dictionary(resource_id) {
+            collect_fonts_from_resources(resources, &mut fonts, document);
+        }
+    }
+    fonts
+}
+
 /// Go over each page in `document` and, for each operation in its content stream(s), call `visitor.visit_op`.
 /// Handles bookkeeping of fonts and resources.
 pub fn visit_page_content_stream_ops(
@@ -51,22 +89,11 @@ pub fn visit_page_content_stream_ops(
                 page_num, page_id, resource_dict, resource_ids
             );
         }
-        // TODO: See whether this next line will do, and if not, document why not.
+        // This line below is almost what we want, except that it borrows document so we'd end up double-borrowing document.
         // let fonts = document.get_page_fonts(page_id);
-        let mut fonts = lopdf::Dictionary::new();
-        if let Some(resource_dict) = resource_dict {
-            if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"Font") {
-                fonts.extend(dict);
-            }
-        }
-        for resource_id in &resource_ids {
-            if let Ok(resource_dict) = document.get_dictionary(*resource_id) {
-                if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"Font") {
-                    fonts.extend(dict);
-                }
-            }
-        }
+        let fonts = get_page_fonts(document, page_id);
 
+        // TODO: Consider something similar to `get_page_fonts` above, if it turns out be necessary.
         let mut xobjects = lopdf::Dictionary::new();
         if let Some(resource_dict) = resource_dict {
             if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"XObject") {
@@ -106,7 +133,7 @@ pub fn visit_page_content_stream_ops(
 fn visit_ops_in_object(
     content_stream_object_id: lopdf::ObjectId,
     document: &mut lopdf::Document,
-    fonts: Option<&lopdf::Dictionary>,
+    fonts: Option<&BTreeMap<Vec<u8>, Dictionary>>,
     xobjects: Option<&lopdf::Dictionary>,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
@@ -156,11 +183,12 @@ fn visit_ops_in_object(
                 }
                 (id, object.as_stream()?.clone())
             };
+            let mut fonts = BTreeMap::new();
             let (fonts, xobjects) = match stream.dict.get(b"Resources") {
                 Ok(lopdf::Object::Dictionary(ref resources)) => (
-                    match resources.get(b"Font") {
-                        Ok(lopdf::Object::Dictionary(ref font_dict)) => Some(font_dict),
-                        _ => None,
+                    {
+                        collect_fonts_from_resources(resources, &mut fonts, &document);
+                        Some(&fonts)
                     },
                     match resources.get(b"XObject") {
                         Ok(lopdf::Object::Dictionary(ref xobjects_dict)) => Some(xobjects_dict),
@@ -181,15 +209,9 @@ fn visit_ops_in_object(
         } else {
             // TODO: Change this interface. Maybe visit Tf right here, or pass in a map, or something.
             visitor.visit_op(&mut content, &mut i, &|font_name: &str| {
-                let font_id = fonts
-                    .unwrap()
-                    .get(font_name.as_bytes())
-                    .unwrap()
-                    .as_reference()
-                    .unwrap();
-                println!("Switching to font {}, which means {:?}", font_name, font_id);
-
-                font_descriptor_id(font_id, document).unwrap()
+                let font = fonts.unwrap().get(font_name.as_bytes()).unwrap();
+                println!("Switching to font {}, which means {:?}", font_name, font);
+                font_descriptor_id(font, document).unwrap()
             })
         }
         i += 1;
@@ -202,7 +224,7 @@ fn visit_ops_in_object(
     Ok(())
 }
 
-/// For instance, given "15454 0", returns ("APZKLW+NotoSansDevanagari-Bold", "40531 0"), in this example:
+/// For instance, given the dict for "15454 0", returns ("APZKLW+NotoSansDevanagari-Bold", "40531 0"), in this example:
 /// ...
 ///
 /// /F4 15454 0 R
@@ -238,12 +260,10 @@ fn visit_ops_in_object(
 ///
 /// ...
 pub fn font_descriptor_id(
-    font_reference_id: lopdf::ObjectId,
+    referenced_font: &lopdf::Dictionary,
     document: &lopdf::Document,
 ) -> anyhow::Result<(String, lopdf::ObjectId)> {
-    let referenced_font = ok!(ok!(document.get_object(font_reference_id)).as_dict());
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
-
     // Simple case: no descendants.
     if !referenced_font.has(b"DescendantFonts") {
         return Ok((
@@ -252,7 +272,7 @@ pub fn font_descriptor_id(
         ));
     }
 
-    // Otherwise, we have descendant fonts. Follow them (it).
+    // Otherwise, we have DescendantFonts, always a one-element array (see table 121). Follow it.
     let descendant_fonts_object = referenced_font.get(b"DescendantFonts").unwrap();
     let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
 
