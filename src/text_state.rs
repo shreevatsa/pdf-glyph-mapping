@@ -152,17 +152,16 @@ impl TextState {
                     #[derive(Deserialize)]
                     struct Replacements {
                         replacement_text: String,
-                        replacement_codes: Vec<i32>,
-                        replacement_desc: Vec<String>,
+                        #[serde(rename = "replacement_codes")]
+                        _replacement_codes: Vec<i32>,
+                        #[serde(rename = "replacement_desc")]
+                        _replacement_desc: Vec<String>,
                     }
 
                     let m: HashMap<String, Replacements> =
                         toml::from_slice(&std::fs::read(filename).unwrap()).unwrap();
                     let mut ret = HashMap::<u16, String>::new();
                     for (glyph_id_str, replacements) in m {
-                        // Silence warning
-                        let _replacement_codes = replacements.replacement_codes;
-                        let _replacement_desc = replacements.replacement_desc;
                         ret.insert(
                             u16::from_str_radix(&glyph_id_str, 16).unwrap(),
                             replacements.replacement_text,
