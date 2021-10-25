@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
 use lopdf::{Dictionary, Document, Object, ObjectId};
 
@@ -26,6 +26,39 @@ pub struct Font {
     pub font_descriptor_id: ObjectId,
 }
 
+// See Table 110 in PDF32000_2008.pdf.
+#[derive(Debug)]
+enum FontSubtype {
+    Type0, // A composite font
+    Type1,
+    MMType1,
+    Type3,
+    TrueType,
+    // CIDFontType0,
+    // CIDFontType1
+}
+impl std::str::FromStr for FontSubtype {
+    // TODO: Come up with a more useful kind of error.
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "Type0" => Ok(FontSubtype::Type0),
+            "Type1" => Ok(FontSubtype::Type1),
+            "MMType1" => Ok(FontSubtype::MMType1),
+            "Type3" => Ok(FontSubtype::Type3),
+            "TrueType" => Ok(FontSubtype::TrueType),
+            // TODO: Figure out the right kind of error to put here.
+            _ => todo!(),
+        }
+    }
+}
+
+trait DocumentWithFontCache {
+    fn get_font() {}
+}
+
+impl DocumentWithFontCache for lopdf::Document {}
+
 pub trait OpVisitor {
     fn visit_op(
         &mut self,
@@ -42,11 +75,23 @@ fn collect_fonts_from_resources<'a>(
     doc: &'a Document,
 ) {
     if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
+        /*
+        The list of font resources, something like:
+            /Font <<
+                /C2_0 13 0 R
+                /TT0 14 0 R
+                /TT1 15 0 R
+            >>
+            where the key is the font's page-internal name, and the value is or points to a font dictionary.
+        */
         for (name, value) in font_dict.iter() {
             let font = match *value {
                 Object::Reference(id) => doc.get_dictionary(id).ok(),
                 Object::Dictionary(ref dict) => Some(dict),
-                _ => None,
+                _ => {
+                    println!("What? Font /{:?} -> {:?}", name, *value);
+                    None
+                }
             };
             if !fonts.contains_key(name) {
                 println!("Cloning this font dictionary: {:?}", font);
@@ -269,8 +314,22 @@ pub fn font_descriptor_id(
     document: &lopdf::Document,
 ) -> anyhow::Result<Font> {
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
-    // Simple case: no descendants.
-    if !referenced_font.has(b"DescendantFonts") {
+    println!("Looking into referenced_font = {:?}", referenced_font);
+
+    fn get_subtype(referenced_font: &lopdf::Dictionary) -> FontSubtype {
+        let subtype = referenced_font.get(b"Subtype");
+        println!("It has subtype: {:?}", subtype);
+        let subtype = subtype.unwrap().as_name();
+        println!("...which as name is: {:?}", subtype);
+        let subtype = FontSubtype::from_str(std::str::from_utf8(subtype.unwrap()).unwrap());
+        println!("...which as FontSubtype is: {:?}", subtype);
+        subtype.unwrap()
+    }
+    let font_subtype = get_subtype(referenced_font);
+    let is_composite_font = matches!(font_subtype, FontSubtype::Type0);
+    assert!(referenced_font.has(b"DescendantFonts") == is_composite_font);
+    // Simple font.
+    if !is_composite_font {
         return Ok(Font {
             base_font_name,
             font_descriptor_id: ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
@@ -279,9 +338,18 @@ pub fn font_descriptor_id(
 
     // Otherwise, we have DescendantFonts, always a one-element array (see table 121 in PDF32000_2008.pdf). Follow it.
     let descendant_fonts_object = referenced_font.get(b"DescendantFonts").unwrap();
+    // But in practice, I've encountered a reference... so follow that first.
+    let descendant_fonts_object = match descendant_fonts_object {
+        lopdf::Object::Reference(r) => document.get_object(*r).unwrap(),
+        _ => descendant_fonts_object,
+    };
     match descendant_fonts_object {
         lopdf::Object::Array(arr) => assert_eq!(arr.len(), 1),
-        _ => assert!(false, "Expected a one-element array."),
+        _ => assert!(
+            false,
+            "Expected a one-element array: Got /DescendantFonts -> #{:?}# in #{:?}#.",
+            descendant_fonts_object, referenced_font
+        ),
     }
     let descendant_font = ok!(follow_to_dict(document, descendant_fonts_object));
     fn follow_to_dict<'a>(
