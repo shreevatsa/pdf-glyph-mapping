@@ -21,21 +21,27 @@ macro_rules! ok {
     };
 }
 
+#[derive(Debug, Clone)]
 pub struct Font {
-    pub base_font_name: String,
-    pub font_descriptor_id: ObjectId,
+    pub deprecated_raw_dict: Option<Dictionary>,
+    pub font_descriptor_id: Option<ObjectId>,
+    pub base_font_name: Option<String>, // Example: "/BaseFont /APZKLW+NotoSansDevanagari-Bold"
+    pub encoding: Option<String>,       // Example: "/Encoding /Identity-H"
+    pub subtype: Option<FontSubtype>, // Example: "/Subtype /Type0", refined in /DescendantFonts to "/Subtype /CIDFontType2"
+    pub to_unicode: Option<()>,       //
+    pub font_descriptor: Option<()>,  //
 }
 
 // See Table 110 in PDF32000_2008.pdf.
-#[derive(Debug)]
-enum FontSubtype {
+#[derive(Debug, Clone)]
+pub enum FontSubtype {
     Type0, // A composite font
     Type1,
     MMType1,
     Type3,
     TrueType,
     // CIDFontType0,
-    // CIDFontType1
+    // CIDFontType2
 }
 impl std::str::FromStr for FontSubtype {
     // TODO: Come up with a more useful kind of error.
@@ -71,7 +77,7 @@ pub trait OpVisitor {
 // Copied from lopdf document.rs, and modified.
 fn collect_fonts_from_resources<'a>(
     resources: &'a Dictionary,
-    fonts: &mut BTreeMap<Vec<u8>, Dictionary>,
+    fonts: &mut BTreeMap<Vec<u8>, Font>,
     doc: &'a Document,
 ) {
     if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
@@ -95,12 +101,12 @@ fn collect_fonts_from_resources<'a>(
             };
             if !fonts.contains_key(name) {
                 println!("Cloning this font dictionary: {:?}", font);
-                font.map(|font| fonts.insert(name.clone(), font.clone()));
+                font.map(|font| fonts.insert(name.clone(), parse_font(font, doc).unwrap()));
             }
         }
     }
 }
-fn get_page_fonts(document: &Document, page_id: ObjectId) -> BTreeMap<Vec<u8>, Dictionary> {
+fn get_page_fonts(document: &Document, page_id: ObjectId) -> BTreeMap<Vec<u8>, Font> {
     let mut fonts = BTreeMap::new();
     let (resource_dict, resource_ids) = document.get_page_resources(page_id);
     if let Some(resources) = resource_dict {
@@ -183,7 +189,7 @@ pub fn visit_page_content_stream_ops(
 fn visit_ops_in_object(
     content_stream_object_id: lopdf::ObjectId,
     document: &mut lopdf::Document,
-    fonts: Option<&BTreeMap<Vec<u8>, Dictionary>>,
+    fonts: Option<&BTreeMap<Vec<u8>, Font>>,
     xobjects: Option<&lopdf::Dictionary>,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
@@ -261,7 +267,7 @@ fn visit_ops_in_object(
             visitor.visit_op(&mut content, &mut i, &|font_name: &str| {
                 let font = fonts.unwrap().get(font_name.as_bytes()).unwrap();
                 println!("Switching to font {}, which means {:?}", font_name, font);
-                font_descriptor_id(font, document).unwrap()
+                font.clone()
             })
         }
         i += 1;
@@ -309,10 +315,7 @@ fn visit_ops_in_object(
 ///   /Type /Font
 ///
 /// ...
-pub fn font_descriptor_id(
-    referenced_font: &lopdf::Dictionary,
-    document: &lopdf::Document,
-) -> anyhow::Result<Font> {
+pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::Result<Font> {
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
     println!("Looking into referenced_font = {:?}", referenced_font);
 
@@ -331,8 +334,15 @@ pub fn font_descriptor_id(
     // Simple font.
     if !is_composite_font {
         return Ok(Font {
-            base_font_name,
-            font_descriptor_id: ok!(ok!(referenced_font.get(b"FontDescriptor")).as_reference()),
+            base_font_name: Some(base_font_name),
+            deprecated_raw_dict: None,
+            font_descriptor_id: Some(ok!(
+                ok!(referenced_font.get(b"FontDescriptor")).as_reference()
+            )),
+            encoding: None,
+            subtype: None,
+            to_unicode: None,
+            font_descriptor: None,
         });
     }
 
@@ -371,7 +381,14 @@ pub fn font_descriptor_id(
     }
 
     Ok(Font {
-        base_font_name,
-        font_descriptor_id: ok!(ok!(descendant_font.get(b"FontDescriptor")).as_reference()),
+        base_font_name: Some(base_font_name),
+        deprecated_raw_dict: Some(referenced_font.clone()),
+        font_descriptor_id: Some(ok!(
+            ok!(descendant_font.get(b"FontDescriptor")).as_reference()
+        )),
+        encoding: None,
+        subtype: Some(font_subtype),
+        to_unicode: None,
+        font_descriptor: None,
     })
 }
