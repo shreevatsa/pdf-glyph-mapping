@@ -89,14 +89,14 @@ impl std::str::FromStr for FontSubtype {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ToUnicodeCMap {
     #[serde_as(as = "Vec<(_, _)>")]
-    pub mapped: HashMap<Vec<u8>, HashSet<Vec<u8>>>,
+    pub mapped: HashMap<Vec<u8>, HashSet<Vec<u16>>>,
 }
 impl ToUnicodeCMap {
     pub fn parse(stream_object: &Object) -> anyhow::Result<ToUnicodeCMap> {
         println!("Trying to parse a CMap out of: {:#?}", stream_object);
         // map from glyph id (as 4-digit hex string) to set of codepoints.
         // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
-        let mut mapped: HashMap<Vec<u8>, HashSet<Vec<u8>>> = HashMap::new();
+        let mut mapped: HashMap<Vec<u8>, HashSet<Vec<u16>>> = HashMap::new();
         let content_stream = stream_object.as_stream()?;
         // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
         let content = {
@@ -116,10 +116,15 @@ impl ToUnicodeCMap {
                         src_and_dst[0].as_str()?,
                         src_and_dst[1].as_str()?
                     );
+                    let dst = ok!(src_and_dst[1].as_str())
+                        .chunks_exact(2)
+                        .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
+                        .collect();
+
                     mapped
                         .entry(src_and_dst[0].as_str()?.to_vec())
                         .or_default()
-                        .insert(src_and_dst[1].as_str()?.to_vec());
+                        .insert(dst);
                 }
             } else if operator == "endbfrange" {
                 for begin_end_offset in op.operands.chunks(3) {
@@ -135,10 +140,11 @@ impl ToUnicodeCMap {
                             BigEndian::write_u64(&mut key, src);
                             let mut value = [0; 8];
                             BigEndian::write_u64(&mut value, dst);
-                            mapped
-                                .entry(key.to_vec())
-                                .or_default()
-                                .insert(value.to_vec());
+                            let value = value
+                                .chunks_exact(2)
+                                .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
+                                .collect();
+                            mapped.entry(key.to_vec()).or_default().insert(value);
                         }
                     }
                 }
