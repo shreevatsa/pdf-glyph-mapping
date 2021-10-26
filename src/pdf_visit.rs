@@ -99,7 +99,6 @@ fn collect_fonts_from_resources<'a>(
                 }
             };
             if !fonts.contains_key(name) {
-                println!("Cloning this font dictionary: {:?}", font);
                 font.map(|font| fonts.insert(name.clone(), parse_font(font, doc).unwrap()));
             }
         }
@@ -316,15 +315,17 @@ fn visit_ops_in_object(
 /// ...
 pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::Result<Font> {
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
-    println!("Looking into referenced_font = {:?}", referenced_font);
+    println!("Looking into referenced_font = {:#?}", referenced_font);
+
+    let encoding = referenced_font.get(b"Encoding")?.as_name_str()?.to_owned();
 
     fn get_subtype(referenced_font: &lopdf::Dictionary) -> FontSubtype {
         let subtype = referenced_font.get(b"Subtype");
-        println!("It has subtype: {:?}", subtype);
+        // println!("It has subtype: {:?}", subtype);
         let subtype = subtype.unwrap().as_name();
-        println!("...which as name is: {:?}", subtype);
+        // println!("...which as name is: {:?}", subtype);
         let subtype = FontSubtype::from_str(std::str::from_utf8(subtype.unwrap()).unwrap());
-        println!("...which as FontSubtype is: {:?}", subtype);
+        // println!("...which as FontSubtype is: {:?}", subtype);
         subtype.unwrap()
     }
     let font_subtype = get_subtype(referenced_font);
@@ -337,8 +338,8 @@ pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::
             font_descriptor_id: Some(ok!(
                 ok!(referenced_font.get(b"FontDescriptor")).as_reference()
             )),
-            encoding: None,
-            subtype: None,
+            encoding: Some(encoding),
+            subtype: Some(font_subtype),
             to_unicode: None,
             font_descriptor: None,
         });
@@ -383,7 +384,7 @@ pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::
         font_descriptor_id: Some(ok!(
             ok!(descendant_font.get(b"FontDescriptor")).as_reference()
         )),
-        encoding: None,
+        encoding: Some(encoding),
         subtype: Some(font_subtype),
         to_unicode: None,
         font_descriptor: None,

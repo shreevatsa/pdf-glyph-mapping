@@ -41,7 +41,10 @@ impl TextState {
     /// For the PDF text-showing operators (Tj ' " TJ), convert the operand into a vector (the glyph ids in the font).
     /// TODO: This assumes glyph ids are 16-bit, which is true for "composite" fonts that have a CMAP,
     /// but for "simple" fonts, glyph ids are just 8-bit. See 9.4.3 (p. 251) of PDF32000_2008.pdf.
-    fn glyph_ids(op: &lopdf::content::Operation) -> Vec<u16> {
+    fn glyph_ids(
+        op: &lopdf::content::Operation,
+        font_subtype: &pdf_visit::FontSubtype,
+    ) -> Vec<u16> {
         let operator = &op.operator;
         let mut bytes: Vec<u8> = Vec::new();
         let text: &[u8] = match operator.as_str() {
@@ -73,7 +76,17 @@ impl TextState {
             }
             _ => unreachable!(),
         };
-        text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
+        match font_subtype {
+            pdf_visit::FontSubtype::Type0 => {
+                text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
+            }
+            pdf_visit::FontSubtype::Type1
+            | pdf_visit::FontSubtype::MMType1
+            | pdf_visit::FontSubtype::Type3
+            | pdf_visit::FontSubtype::TrueType => {
+                text.chunks(1).map(|chunk| chunk[0] as u16).collect()
+            }
+        }
     }
 
     fn visit_text_showing_operator_dump(
@@ -242,8 +255,9 @@ impl MyOpVisitor {
         i: &mut usize,
     ) {
         // First get the list of glyph_ids for this operator.
-        // TODO: If current_font is not a composite font, then use a different function?
-        let glyph_ids: Vec<u16> = TextState::glyph_ids(op);
+        let glyph_ids: Vec<u16> =
+            TextState::glyph_ids(op, self.text_state.current_font.subtype.as_ref().unwrap());
+
         match self.phase {
             // Phase 1: Write to file.
             Phase::Phase1Dump => self.text_state.visit_text_showing_operator_dump(
@@ -356,40 +370,51 @@ pub fn dump_unicode_mappings(
                 let pdf_font = pdf_visit::parse_font(dict, &document)?;
                 let base_font_name = pdf_font.base_font_name.unwrap();
                 let font_descriptor_id = pdf_font.font_descriptor_id.unwrap();
+                println!("Trying to parse a CMap out of: {:#?}", stream_object);
                 // map from glyph id (as 4-digit hex string) to set of codepoints.
                 // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
                 let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
-                let stream = stream_object.as_stream()?;
+                let content_stream = stream_object.as_stream()?;
                 // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
-                if let Ok(content) = stream.decode_content() {
-                    for op in content.operations {
-                        let operator = op.operator;
-                        if operator == "endbfchar" {
-                            for src_and_dst in op.operands.chunks(2) {
-                                assert_eq!(src_and_dst.len(), 2);
-                                let src = from_two_bytes(src_and_dst[0].as_str()?);
-                                let dst = from_two_bytes(src_and_dst[1].as_str()?);
+                let content = {
+                    match content_stream.decompressed_content() {
+                        Ok(data) => lopdf::content::Content::decode(&data),
+                        Err(_) => lopdf::content::Content::decode(&content_stream.content),
+                    }?
+                };
+                for op in content.operations {
+                    println!("An op: {:#?}", op.operator);
+                    let operator = op.operator;
+                    if operator == "endbfchar" {
+                        for src_and_dst in op.operands.chunks(2) {
+                            assert_eq!(src_and_dst.len(), 2);
+                            println!(
+                                "Mapping {:#?} to {:#?}",
+                                src_and_dst[0].as_str()?,
+                                src_and_dst[1].as_str()?
+                            );
+                            let src = from_two_bytes(src_and_dst[0].as_str()?);
+                            let dst = from_two_bytes(src_and_dst[1].as_str()?);
+                            if dst != 0 {
+                                mapped
+                                    .entry(format!("{:04X}", src))
+                                    .or_default()
+                                    .insert(dst);
+                            }
+                        }
+                    } else if operator == "endbfrange" {
+                        for begin_end_offset in op.operands.chunks(3) {
+                            assert_eq!(begin_end_offset.len(), 3);
+                            let begin = from_two_bytes(begin_end_offset[0].as_str()?);
+                            let end = from_two_bytes(begin_end_offset[1].as_str()?);
+                            let offset = from_two_bytes(begin_end_offset[2].as_str()?);
+                            for src in begin..=end {
+                                let dst = src - begin + offset;
                                 if dst != 0 {
                                     mapped
                                         .entry(format!("{:04X}", src))
                                         .or_default()
                                         .insert(dst);
-                                }
-                            }
-                        } else if operator == "endbfrange" {
-                            for begin_end_offset in op.operands.chunks(3) {
-                                assert_eq!(begin_end_offset.len(), 3);
-                                let begin = from_two_bytes(begin_end_offset[0].as_str()?);
-                                let end = from_two_bytes(begin_end_offset[1].as_str()?);
-                                let offset = from_two_bytes(begin_end_offset[2].as_str()?);
-                                for src in begin..=end {
-                                    let dst = src - begin + offset;
-                                    if dst != 0 {
-                                        mapped
-                                            .entry(format!("{:04X}", src))
-                                            .or_default()
-                                            .insert(dst);
-                                    }
                                 }
                             }
                         }
