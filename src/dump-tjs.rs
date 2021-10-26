@@ -72,7 +72,6 @@ fn main() -> Result<()> {
         let mut visitor = text_state::MyOpVisitor {
             text_state: text_state::TextState {
                 current_font: pdf_visit::Font {
-                    deprecated_raw_dict: None,
                     font_descriptor_id: None,
                     base_font_name: None,
                     encoding: None,

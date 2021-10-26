@@ -23,7 +23,6 @@ macro_rules! ok {
 
 #[derive(Debug, Clone)]
 pub struct Font {
-    pub deprecated_raw_dict: Option<Dictionary>,
     pub font_descriptor_id: Option<ObjectId>,
     pub base_font_name: Option<String>, // Example: "/BaseFont /APZKLW+NotoSansDevanagari-Bold"
     pub encoding: Option<String>,       // Example: "/Encoding /Identity-H"
@@ -335,7 +334,6 @@ pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::
     if !is_composite_font {
         return Ok(Font {
             base_font_name: Some(base_font_name),
-            deprecated_raw_dict: None,
             font_descriptor_id: Some(ok!(
                 ok!(referenced_font.get(b"FontDescriptor")).as_reference()
             )),
@@ -382,7 +380,6 @@ pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::
 
     Ok(Font {
         base_font_name: Some(base_font_name),
-        deprecated_raw_dict: Some(referenced_font.clone()),
         font_descriptor_id: Some(ok!(
             ok!(descendant_font.get(b"FontDescriptor")).as_reference()
         )),
