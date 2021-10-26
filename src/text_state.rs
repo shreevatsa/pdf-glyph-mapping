@@ -1,13 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs::File,
-    io::Write,
-};
+use std::{collections::HashMap, fs::File, io::Write};
 
 use itertools::Itertools;
 use lopdf::ObjectId;
 use serde_derive::Deserialize;
 
+use crate::{ok, pdf_visit::ToUnicodeCMap};
 use crate::{pdf_visit, Phase};
 
 pub struct TextState {
@@ -141,10 +138,6 @@ impl TextState {
                 let font_glyph_mapping = {
                     let base_font_name = &current_font.base_font_name.as_ref().unwrap();
                     let font_id = current_font.font_descriptor_id.unwrap();
-                    // let filename = maps_dir.join(format!(
-                    //     "{}.toml",
-                    //     basename_for_font(font_id, base_font_name)
-                    // ));
                     let glob_pattern =
                         format!("{}/*{}.toml", maps_dir.to_string_lossy(), base_font_name);
                     println!(
@@ -332,7 +325,7 @@ pub fn from_two_bytes(bytes: &[u8]) -> u16 {
     (bytes[0] as u16) * 256 + (bytes[1] as u16)
 }
 
-// Used for dumping both Tj operands, and unicode mappings (cmap-s).
+/// Used for dumping both Tj operands, and unicode mappings ("CMap"s).
 fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
     format!("font-{}-{}-{}", font_id.0, font_id.1, base_font_name)
 }
@@ -370,69 +363,22 @@ pub fn dump_unicode_mappings(
                 let pdf_font = pdf_visit::parse_font(dict, &document)?;
                 let base_font_name = pdf_font.base_font_name.unwrap();
                 let font_descriptor_id = pdf_font.font_descriptor_id.unwrap();
-                println!("Trying to parse a CMap out of: {:#?}", stream_object);
-                // map from glyph id (as 4-digit hex string) to set of codepoints.
-                // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
-                let mut mapped: HashMap<String, HashSet<u16>> = HashMap::new();
-                let content_stream = stream_object.as_stream()?;
-                // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
-                let content = {
-                    match content_stream.decompressed_content() {
-                        Ok(data) => lopdf::content::Content::decode(&data),
-                        Err(_) => lopdf::content::Content::decode(&content_stream.content),
-                    }?
-                };
-                for op in content.operations {
-                    println!("An op: {:#?}", op.operator);
-                    let operator = op.operator;
-                    if operator == "endbfchar" {
-                        for src_and_dst in op.operands.chunks(2) {
-                            assert_eq!(src_and_dst.len(), 2);
-                            println!(
-                                "Mapping {:#?} to {:#?}",
-                                src_and_dst[0].as_str()?,
-                                src_and_dst[1].as_str()?
-                            );
-                            let src = from_two_bytes(src_and_dst[0].as_str()?);
-                            let dst = from_two_bytes(src_and_dst[1].as_str()?);
-                            if dst != 0 {
-                                mapped
-                                    .entry(format!("{:04X}", src))
-                                    .or_default()
-                                    .insert(dst);
-                            }
-                        }
-                    } else if operator == "endbfrange" {
-                        for begin_end_offset in op.operands.chunks(3) {
-                            assert_eq!(begin_end_offset.len(), 3);
-                            let begin = from_two_bytes(begin_end_offset[0].as_str()?);
-                            let end = from_two_bytes(begin_end_offset[1].as_str()?);
-                            let offset = from_two_bytes(begin_end_offset[2].as_str()?);
-                            for src in begin..=end {
-                                let dst = src - begin + offset;
-                                if dst != 0 {
-                                    mapped
-                                        .entry(format!("{:04X}", src))
-                                        .or_default()
-                                        .insert(dst);
-                                }
-                            }
-                        }
-                    }
-                }
-                if mapped.len() > 0 {
+                let cmap = ok!(ToUnicodeCMap::parse(stream_object));
+                if cmap.mapped.len() > 0 {
                     std::fs::create_dir_all(maps_dir.clone())?;
-                    let filename = maps_dir
-                        .join(basename_for_font(font_descriptor_id, &base_font_name) + ".toml");
+                    let filename = maps_dir.join(
+                        basename_for_font(font_descriptor_id, &base_font_name) + "-cmap.toml",
+                    );
                     println!(
                         "Creating file {:?} for Font {:?} ({}) with {} mappings",
                         filename,
                         font_descriptor_id,
                         base_font_name,
-                        mapped.len()
+                        cmap.mapped.len()
                     );
-                    let toml_string = toml::to_string(&mapped)?;
-                    std::fs::write(filename, toml_string)?;
+
+                    let toml_string = ok!(toml::to_string(&cmap));
+                    ok!(std::fs::write(filename, toml_string));
                 } else {
                     println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_descriptor_id, base_font_name);
                 }

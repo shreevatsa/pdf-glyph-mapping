@@ -1,6 +1,11 @@
-use std::{collections::BTreeMap, str::FromStr};
-
+use byteorder::{BigEndian, ByteOrder};
 use lopdf::{Dictionary, Document, Object, ObjectId};
+use serde_derive::{Deserialize, Serialize};
+use serde_with::serde_as;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
+};
 
 macro_rules! indent {
     ($depth:ident) => {
@@ -12,6 +17,7 @@ macro_rules! indent {
     };
 }
 
+#[macro_export]
 macro_rules! ok {
     ($result:expr) => {
         $result.map_err(|err| {
@@ -21,14 +27,32 @@ macro_rules! ok {
     };
 }
 
+pub fn from_many_bytes(bytes: &[u8]) -> u64 {
+    assert!(bytes.len() <= 8, format!("Wow, super-long: {:?}", bytes));
+    let mut ret = 0;
+    for byte in bytes {
+        ret = ret * 256 + (*byte as u64)
+    }
+    ret
+}
+
 #[derive(Debug, Clone)]
 pub struct Font {
     pub font_descriptor_id: Option<ObjectId>,
     pub base_font_name: Option<String>, // Example: "/BaseFont /APZKLW+NotoSansDevanagari-Bold"
     pub encoding: Option<String>,       // Example: "/Encoding /Identity-H"
     pub subtype: Option<FontSubtype>, // Example: "/Subtype /Type0", refined in /DescendantFonts to "/Subtype /CIDFontType2"
-    pub to_unicode: Option<()>,       //
-    pub font_descriptor: Option<()>,  //
+    /*
+    See 9.10 Extraction of Text Content (page numbered 292 = PDF page 300 of PDF32000_2008.pdf):
+
+    1. If the font dictionary has a "ToUnicode" entry (a CMap), use it.
+    2. "If the font is a simple font that uses one of the predefined encodings MacRomanEncoding, MacExpertEncoding, or WinAnsiEncoding",
+       or [all its characters are "known", basically], then (look it up)...
+    3. If the font uses one of the predefined CMaps, ...
+    4. "An ActualText entry [for a structure element or marked-content sequence]"
+     */
+    pub to_unicode: Option<()>,      //
+    pub font_descriptor: Option<()>, //
 }
 
 // See Table 110 in PDF32000_2008.pdf.
@@ -55,6 +79,72 @@ impl std::str::FromStr for FontSubtype {
             // TODO: Figure out the right kind of error to put here.
             _ => todo!(),
         }
+    }
+}
+
+// (Character code) ---[Encoding]---> (CIDs) ---[CIDToGIDMap]---> (Glyph IDs) ---[ToUnicode CMap]---> (Unicode scalar values)
+
+// Mapping from character codes to "character selectors" aka CIDs.
+#[serde_as]
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ToUnicodeCMap {
+    #[serde_as(as = "Vec<(_, _)>")]
+    pub mapped: HashMap<Vec<u8>, HashSet<Vec<u8>>>,
+}
+impl ToUnicodeCMap {
+    pub fn parse(stream_object: &Object) -> anyhow::Result<ToUnicodeCMap> {
+        println!("Trying to parse a CMap out of: {:#?}", stream_object);
+        // map from glyph id (as 4-digit hex string) to set of codepoints.
+        // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
+        let mut mapped: HashMap<Vec<u8>, HashSet<Vec<u8>>> = HashMap::new();
+        let content_stream = stream_object.as_stream()?;
+        // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
+        let content = {
+            match content_stream.decompressed_content() {
+                Ok(data) => lopdf::content::Content::decode(&data),
+                Err(_) => lopdf::content::Content::decode(&content_stream.content),
+            }?
+        };
+        for op in content.operations {
+            println!("An op: {:#?}", op.operator);
+            let operator = op.operator;
+            if operator == "endbfchar" {
+                for src_and_dst in op.operands.chunks(2) {
+                    assert_eq!(src_and_dst.len(), 2);
+                    println!(
+                        "Mapping {:#?} to {:#?}",
+                        src_and_dst[0].as_str()?,
+                        src_and_dst[1].as_str()?
+                    );
+                    mapped
+                        .entry(src_and_dst[0].as_str()?.to_vec())
+                        .or_default()
+                        .insert(src_and_dst[1].as_str()?.to_vec());
+                }
+            } else if operator == "endbfrange" {
+                for begin_end_offset in op.operands.chunks(3) {
+                    assert_eq!(begin_end_offset.len(), 3);
+                    // TODO: Allow more general lengths of bytes.
+                    let begin = from_many_bytes(begin_end_offset[0].as_str()?);
+                    let end = from_many_bytes(begin_end_offset[1].as_str()?);
+                    let offset = from_many_bytes(begin_end_offset[2].as_str()?);
+                    for src in begin..=end {
+                        let dst = src - begin + offset;
+                        if dst != 0 {
+                            let mut key = [0; 8];
+                            BigEndian::write_u64(&mut key, src);
+                            let mut value = [0; 8];
+                            BigEndian::write_u64(&mut value, dst);
+                            mapped
+                                .entry(key.to_vec())
+                                .or_default()
+                                .insert(value.to_vec());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(ToUnicodeCMap { mapped })
     }
 }
 
