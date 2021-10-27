@@ -2,10 +2,12 @@ use std::{collections::HashMap, fs::File, io::Write};
 
 use itertools::Itertools;
 use lopdf::ObjectId;
-use serde_derive::Deserialize;
+// use serde_derive::Deserialize;
 
 use crate::{ok, pdf_visit::ToUnicodeCMap};
 use crate::{pdf_visit, Phase};
+use pdf_visit::CharacterCode;
+use pdf_visit::FontSubtype;
 
 pub struct TextState {
     pub current_font: pdf_visit::Font,
@@ -41,7 +43,7 @@ impl TextState {
     fn glyph_ids(
         op: &lopdf::content::Operation,
         font_subtype: &pdf_visit::FontSubtype,
-    ) -> Vec<u16> {
+    ) -> Vec<CharacterCode> {
         let operator = &op.operator;
         let mut bytes: Vec<u8> = Vec::new();
         let text: &[u8] = match operator.as_str() {
@@ -73,26 +75,25 @@ impl TextState {
             }
             _ => unreachable!(),
         };
-        match font_subtype {
-            pdf_visit::FontSubtype::Type0 => {
-                text.chunks(2).map(|chunk| from_two_bytes(chunk)).collect()
-            }
-            pdf_visit::FontSubtype::Type1
-            | pdf_visit::FontSubtype::MMType1
-            | pdf_visit::FontSubtype::Type3
-            | pdf_visit::FontSubtype::TrueType => {
-                text.chunks(1).map(|chunk| chunk[0] as u16).collect()
-            }
-        }
+        let chunk_size = match font_subtype {
+            FontSubtype::Type0 => 2,
+            FontSubtype::Type1
+            | FontSubtype::MMType1
+            | FontSubtype::Type3
+            | FontSubtype::TrueType => 1,
+        };
+        text.chunks(chunk_size)
+            .map(|chunk| CharacterCode(chunk.to_vec()))
+            .collect()
     }
 
     fn visit_text_showing_operator_dump(
         &self,
-        glyph_ids: &[u16],
+        glyph_ids: &[CharacterCode],
         maps_dir: &std::path::PathBuf,
         files: &mut TjFiles,
     ) {
-        let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:04X} ", n)).collect();
+        let glyph_hexes: Vec<String> = glyph_ids.iter().map(|n| format!("{:?} ", n)).collect();
         let file = {
             files
                 .file
@@ -117,9 +118,9 @@ impl TextState {
 
     fn visit_text_showing_operator_wrap(
         &self,
-        glyph_ids: &[u16],
+        glyph_ids: &[CharacterCode],
         maps_dir: &std::path::PathBuf,
-        font_glyph_mappings: &mut HashMap<lopdf::ObjectId, HashMap<u16, String>>,
+        font_glyph_mappings: &mut HashMap<lopdf::ObjectId, HashMap<CharacterCode, String>>,
     ) -> lopdf::Dictionary {
         // Phase 2: Wrap the operator in /ActualText.
 
@@ -138,8 +139,11 @@ impl TextState {
                 let font_glyph_mapping = {
                     let base_font_name = &current_font.base_font_name.as_ref().unwrap();
                     let font_id = current_font.font_descriptor_id.unwrap();
-                    let glob_pattern =
-                        format!("{}/*{}.toml", maps_dir.to_string_lossy(), base_font_name);
+                    let glob_pattern = format!(
+                        "{}/*{}-cmap.toml",
+                        maps_dir.to_string_lossy(),
+                        base_font_name
+                    );
                     println!(
                         "For font {:?} = {}, looking for map files matching pattern #{}#",
                         font_id, base_font_name, glob_pattern
@@ -155,6 +159,8 @@ impl TextState {
                     }
                     println!("Trying to read from filename {:?}", filename);
 
+                    let mut ret = HashMap::<CharacterCode, String>::new();
+                    /*
                     #[derive(Deserialize)]
                     struct Replacements {
                         replacement_text: String,
@@ -166,11 +172,20 @@ impl TextState {
 
                     let m: HashMap<String, Replacements> =
                         toml::from_slice(&std::fs::read(filename).unwrap()).unwrap();
-                    let mut ret = HashMap::<u16, String>::new();
                     for (glyph_id_str, replacements) in m {
                         ret.insert(
                             u16::from_str_radix(&glyph_id_str, 16).unwrap(),
                             replacements.replacement_text,
+                        );
+                    }
+                    */
+                    let cmap: ToUnicodeCMap =
+                        toml::from_slice(&std::fs::read(filename).unwrap()).unwrap();
+                    for (character_codes_sequence, replacements) in cmap.mapped {
+                        assert_eq!(replacements.len(), 1);
+                        ret.insert(
+                            character_codes_sequence,
+                            replacements.iter().next().unwrap().clone(),
                         );
                     }
                     ret
@@ -190,14 +205,14 @@ impl TextState {
                         v.to_string()
                     } else {
                         println!(
-                            "No mapping found for glyph {:04X} in font {}!",
+                            "No mapping found for glyph {:?} in font {}!",
                             glyph_id,
                             current_font.base_font_name.as_ref().unwrap()
                         );
                         println!("Nevermind, enter replacement text now:");
                         let replacement: String = text_io::read!("{}\n"); // Quiet alternative: format!("[glyph{:04X}]", glyph_id);
                         println!("Thanks, using replacement #{}#", replacement);
-                        current_map.insert(*glyph_id, replacement.clone());
+                        current_map.insert(CharacterCode(glyph_id.0.clone()), replacement.clone());
                         replacement
                     }
                 })
@@ -236,7 +251,7 @@ pub struct MyOpVisitor {
     pub text_state: TextState,
     pub maps_dir: std::path::PathBuf,
     pub files: TjFiles,
-    pub font_glyph_mappings: HashMap<ObjectId, HashMap<u16, String>>,
+    pub font_glyph_mappings: HashMap<ObjectId, HashMap<CharacterCode, String>>,
     pub phase: Phase,
 }
 
@@ -248,7 +263,7 @@ impl MyOpVisitor {
         i: &mut usize,
     ) {
         // First get the list of glyph_ids for this operator.
-        let glyph_ids: Vec<u16> =
+        let glyph_ids: Vec<CharacterCode> =
             TextState::glyph_ids(op, self.text_state.current_font.subtype.as_ref().unwrap());
 
         match self.phase {
@@ -285,7 +300,7 @@ impl MyOpVisitor {
             println!("Creating file: {:?}", map_filename);
             let mut map_for_toml: HashMap<String, String> = HashMap::new();
             for (glyph_id, text) in v {
-                map_for_toml.insert(format!("{:04X}", glyph_id), text.to_string());
+                map_for_toml.insert(format!("{:?}", glyph_id), text.to_string());
             }
             let _ = std::fs::write(map_filename, toml::to_vec(&map_for_toml).unwrap());
         }
@@ -320,11 +335,6 @@ impl pdf_visit::OpVisitor for MyOpVisitor {
     }
 }
 
-pub fn from_two_bytes(bytes: &[u8]) -> u16 {
-    assert_eq!(bytes.len(), 2);
-    (bytes[0] as u16) * 256 + (bytes[1] as u16)
-}
-
 /// Used for dumping both Tj operands, and unicode mappings ("CMap"s).
 fn basename_for_font(font_id: ObjectId, base_font_name: &str) -> String {
     format!("font-{}-{}-{}", font_id.0, font_id.1, base_font_name)
@@ -354,7 +364,7 @@ fn pdf_encode_unicode_text_string(mytext: &str) -> Vec<u8> {
 
 /// For each font N in `document`, dump its ToUnicode map to file maps_dir/font-N.toml
 pub fn dump_unicode_mappings(
-    document: &mut lopdf::Document,
+    document: &lopdf::Document,
     maps_dir: std::path::PathBuf,
 ) -> anyhow::Result<()> {
     for (_object_id, object) in &document.objects {

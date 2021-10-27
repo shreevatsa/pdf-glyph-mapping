@@ -60,7 +60,7 @@ fn main() -> Result<()> {
     println!("Loaded {:?} in {:?}", &filename, end.duration_since(start));
 
     if let Phase::Phase1Dump = opts.phase {
-        text_state::dump_unicode_mappings(&mut document, opts.maps_dir.clone()).unwrap_or(());
+        text_state::dump_unicode_mappings(&document, opts.maps_dir.clone()).unwrap_or(());
     }
 
     let guard = match opts.profile {
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
             visitor.dump_font_glyph_mappings();
             if let Some(output_pdf_filename) = opts.output_pdf_file {
                 println!("Creating file: {:?}", output_pdf_filename);
-                document.save(output_pdf_filename)?;
+                ok!(document.save(output_pdf_filename));
             } else {
                 todo!()
             }

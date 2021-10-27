@@ -85,19 +85,26 @@ impl std::str::FromStr for FontSubtype {
 
 // (Character code) ---[Encoding]---> (CIDs) ---[CIDToGIDMap]---> (Glyph IDs) ---[ToUnicode CMap]---> (Unicode scalar values)
 
+// See under "CMap Mapping":
+// > A sequence of one or more bytes is extracted from the string and matched against the codespace ranges in the CMap. […]
+// > The codespace ranges in the CMap (delimited by begincodespacerange and endcodespacerange) determine how many bytes are
+// > extracted from the string for each successive character code.
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CharacterCode(pub Vec<u8>);
+
 // Mapping from character codes to "character selectors" aka CIDs.
 #[serde_as]
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ToUnicodeCMap {
     #[serde_as(as = "Vec<(_, _)>")]
-    pub mapped: HashMap<Vec<u8>, HashSet<String>>,
+    pub mapped: HashMap<CharacterCode, HashSet<String>>,
 }
 impl ToUnicodeCMap {
     pub fn parse(stream_object: &Object) -> anyhow::Result<ToUnicodeCMap> {
         println!("Trying to parse a CMap out of: {:#?}", stream_object);
         // map from glyph id (as 4-digit hex string) to set of codepoints.
         // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
-        let mut mapped: HashMap<Vec<u8>, HashSet<String>> = HashMap::new();
+        let mut mapped: HashMap<CharacterCode, HashSet<String>> = HashMap::new();
         let content_stream = stream_object.as_stream()?;
         // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
         let content = {
@@ -112,21 +119,14 @@ impl ToUnicodeCMap {
             if operator == "endbfchar" {
                 for src_and_dst in op.operands.chunks(2) {
                     assert_eq!(src_and_dst.len(), 2);
-                    println!(
-                        "Mapping {:#?} to {:#?}",
-                        src_and_dst[0].as_str()?,
-                        src_and_dst[1].as_str()?
-                    );
                     let dst: Vec<u16> = ok!(src_and_dst[1].as_str())
                         .chunks_exact(2)
                         .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
                         .collect();
                     let dst = ok!(String::from_utf16(&dst));
-
-                    mapped
-                        .entry(src_and_dst[0].as_str()?.to_vec())
-                        .or_default()
-                        .insert(dst);
+                    let src = CharacterCode(src_and_dst[0].as_str()?.to_vec());
+                    println!("Mapping {:?} to < {:} >", src, dst);
+                    mapped.entry(src).or_default().insert(dst);
                 }
             } else if operator == "endbfrange" {
                 for begin_end_offset in op.operands.chunks(3) {
@@ -147,7 +147,11 @@ impl ToUnicodeCMap {
                                 .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
                                 .collect();
                             let value = ok!(String::from_utf16(&value));
-                            mapped.entry(key.to_vec()).or_default().insert(value);
+                            println!("Mapping {:?} to < {:} >.", key, value);
+                            mapped
+                                .entry(CharacterCode(key.to_vec()))
+                                .or_default()
+                                .insert(value);
                         }
                     }
                 }
