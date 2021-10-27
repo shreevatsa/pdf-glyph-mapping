@@ -1,18 +1,24 @@
 # pdf-glyph-mapping
-Some scripts to help make sense of individual glyphs in a PDF, and map them to actual text equivalents.
+Scripts to help with text extraction from (some) PDF files.
+
+(Specifically: fix incorrect/incomplete `ToUnicode CMap`, i.e. the mapping between individual glyphs and Unicode text.)
 
 ## What's this?
 
-Text that requires complex text layout (because of being in Indic scripts, say) cannot always be copied correctly from PDFs. Here is a bunch of tools that may help in some cases.
+Text that requires complex text layout (because of being in Indic scripts, say) cannot be copied correctly from PDFs, unless annotated with `ActualText`. Here is a bunch of tools that may help in some cases.
 
 Roughly, the idea is to
-- extract font data from the PDF file, 
-- associate each glyph with its equivalent Unicode sequence (manually if necessary),
-- use this information to convert each text run in the PDF to the corresponding text. (By post-processing the PDF file to wrap each text run inside  `/ActualText`.)
+1.  from the PDF file, extract
+    -   the current glyph<->Unicode mapping (if present), and
+    -   the runs of text present (as character codes), per font
+2.  use this information (and the shapes of the glyphs) to assist with manually associating each glyph with its equivalent Unicode sequence,
+3.  use this correct mapping to obtain Unicode text: either
+    -   convert the text runs extracted earlier, or
+    -   post-process the PDF file to wrap each text run inside `/ActualText`.
 
 ## Background
 
-Some PDF files are just a collection of images (scans of pages) — we ignore those. In any other PDF file (e.g. one where you can select a run of text), the text is displayed by laying out glyphs from a font. For example, in a certain PDF that uses the font Noto Sans Devanagari, the word प्राप्त may be formed by laying out four glyphs:
+Some PDF files are just a collection of images (scans of pages) — we ignore those (for those, use OCR). In any other PDF file that contains text streams (e.g. one where you can select a run of text), the text is displayed by laying out glyphs from a font. For example, in a certain PDF that uses the font Noto Sans Devanagari, the word प्राप्त may be formed by laying out four glyphs:
 
 ![0112](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0112.png)
 ![0042](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0042.png)
@@ -33,9 +39,9 @@ In this font, these glyphs happen to have numerical IDs (like 0112, 0042, 00CB, 
 - 0028 (![0028](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0028.png)) maps to
   - 0924 DEVANAGARI LETTER TA
 
-Sometimes, part of this mapping (like the last item above) may be included in the PDF itself (CMap), but nontrivial cases (like the first one) often aren't.
+The PDF file itself may already contain such a mapping (CMap), but it is often incomplete, missing nontrivial cases like the first glyph above.
 
-Roughly speaking, the glyph ids are laid out in visual order while Unicode text is in phonetic order. So the correspondence may be nontrivial. See the example on [page 36 here](https://itextpdf.com/sites/default/files/2018-12/PP_Advanced_typography_in_PDF-compressed.pdf#page=36); a couple more examples below:
+Even after the mapping is fixed, a second problem is that, roughly speaking, the glyph ids are laid out in visual order while Unicode text is in phonetic order. So the correspondence may be nontrivial. See the example on [page 36 here](https://itextpdf.com/sites/default/files/2018-12/PP_Advanced_typography_in_PDF-compressed.pdf#page=36); a couple more examples below:
 
 1.  The word विकर्ण may be laid out as:
 
@@ -45,7 +51,7 @@ Roughly speaking, the glyph ids are laid out in visual order while Unicode text 
     ![0027](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-0027.png)
     ![00B5](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-00B5.png)
 
-    and we want this to correspond to the sequence of codepoints
+    and we want this to correspond to the following sequence of Unicode codepoints:
 
     1. 0935 DEVANAGARI LETTER VA
     2. 093F DEVANAGARI VOWEL SIGN I
@@ -71,7 +77,7 @@ Roughly speaking, the glyph ids are laid out in visual order while Unicode text 
     ![001B](https://shreevatsa.github.io/pdf-glyph-mapping/work/glyphs/font-40532.ttf/glyph-001B.png)
 
 
-## Example
+## Example of usage
 
 (TODO)
 

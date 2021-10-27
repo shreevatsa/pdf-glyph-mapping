@@ -5,12 +5,13 @@ authors = ["Shreevatsa R <shreevatsa.public@gmail.com>"]
 edition = "2018"
 
 [[bin]]
-name = "dump-glyphs"
-path = "src/dump-glyphs.rs"
-
-[[bin]]
 name = "dump-tjs"
 path = "src/dump-tjs.rs"
+
+# A helper binary, to use with a TTF file dumped from the PDF.
+[[bin]]
+name = "dump-glyphs"
+path = "src/dump-glyphs.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

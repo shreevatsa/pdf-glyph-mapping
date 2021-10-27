@@ -98,7 +98,7 @@ fn main() -> Result<()> {
         if let Phase::Phase2Fix = opts.phase {
             visitor.dump_font_glyph_mappings();
             if let Some(output_pdf_filename) = opts.output_pdf_file {
-                println!("Creating file: {:?}", output_pdf_filename);
+                println!("Saving result to PDF file: {:?}", output_pdf_filename);
                 ok!(document.save(output_pdf_filename));
             } else {
                 todo!()

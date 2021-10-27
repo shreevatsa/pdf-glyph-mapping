@@ -89,7 +89,7 @@ impl std::str::FromStr for FontSubtype {
 // > A sequence of one or more bytes is extracted from the string and matched against the codespace ranges in the CMap. […]
 // > The codespace ranges in the CMap (delimited by begincodespacerange and endcodespacerange) determine how many bytes are
 // > extracted from the string for each successive character code.
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
 pub struct CharacterCode(pub Vec<u8>);
 
 // Mapping from character codes to "character selectors" aka CIDs.
