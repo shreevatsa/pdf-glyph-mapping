@@ -1,4 +1,3 @@
-use byteorder::{BigEndian, ByteOrder};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -26,15 +25,6 @@ macro_rules! ok {
             err
         })?
     };
-}
-
-pub fn from_many_bytes(bytes: &[u8]) -> u64 {
-    assert!(bytes.len() <= 8, format!("Wow, super-long: {:?}", bytes));
-    let mut ret = 0;
-    for byte in bytes {
-        ret = ret * 256 + (*byte as u64)
-    }
-    ret
 }
 
 #[derive(Debug, Clone)]
@@ -131,19 +121,41 @@ impl ToUnicodeCMap {
             } else if operator == "endbfrange" {
                 for begin_end_offset in op.operands.chunks(3) {
                     assert_eq!(begin_end_offset.len(), 3);
-                    // TODO: Allow more general lengths of bytes.
-                    let begin = from_many_bytes(begin_end_offset[0].as_str()?);
-                    let end = from_many_bytes(begin_end_offset[1].as_str()?);
-                    let offset = from_many_bytes(begin_end_offset[2].as_str()?);
+                    let begin = ok!(begin_end_offset[0].as_str());
+                    let end = ok!(begin_end_offset[1].as_str());
+                    let offset = ok!(begin_end_offset[2].as_str());
+                    let len = begin.len();
+                    assert_eq!(len, end.len());
+                    assert_eq!(2, offset.len());
+                    // We expect begin/end to be 1 or 2 bytes usually, but use u64 to support up to 8 bytes.
+                    fn from_many_bytes(bytes: &[u8]) -> u64 {
+                        assert!(bytes.len() <= 8, format!("Wow, super-long: {:?}", bytes));
+                        let mut ret = 0;
+                        for byte in bytes {
+                            ret = ret * 256 + (*byte as u64)
+                        }
+                        ret
+                    }
+                    fn to_many_bytes(mut bytes: u64, len: usize) -> Vec<u8> {
+                        assert!(len <= 8, format!("Wow, super-long: {:?}", len));
+                        let mut ret = vec![0 as u8; len];
+                        for i in 0..len {
+                            ret[i] = (bytes % 256) as u8;
+                            bytes /= 256;
+                        }
+                        ret.reverse();
+                        ret
+                    }
+                    let begin = from_many_bytes(begin);
+                    let end = from_many_bytes(end);
+                    let offset = from_many_bytes(offset);
                     for src in begin..=end {
                         let dst = src - begin + offset;
                         if dst != 0 {
-                            let mut key = [0; 8];
-                            BigEndian::write_u64(&mut key, src);
-                            let mut value = [0; 8];
-                            BigEndian::write_u64(&mut value, dst);
+                            let key = to_many_bytes(src, len);
+                            let value = to_many_bytes(dst, 2);
                             let value: Vec<u16> = value
-                                .chunks_exact(2)
+                                .chunks(2)
                                 .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
                                 .collect();
                             let value = ok!(String::from_utf16(&value));
