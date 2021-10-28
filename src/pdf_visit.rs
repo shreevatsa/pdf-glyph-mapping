@@ -232,7 +232,6 @@ pub fn visit_page_content_stream_ops(
     let pages = document.get_pages();
     println!("{} pages in this document.", pages.len());
     let mut seen_ops = linked_hash_map::LinkedHashMap::new();
-    // let mut seen_ops = std::collections::HashMap::new();
     for (page_num, page_id) in pages {
         if let Some(p) = chosen_page_number {
             if page_num != p {

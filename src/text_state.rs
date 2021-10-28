@@ -274,7 +274,7 @@ impl MyOpVisitor {
 
     pub fn dump_font_glyph_mappings(&self) {
         for (k, v) in &self.font_glyph_mappings {
-            let map_filename = format!("map-{}-{}.toml", k.0, k.1);
+            let map_filename = self.maps_dir.join(format!("font-{}-{}.toml", k.0, k.1));
             println!("Creating file: {:?} for final mappings used.", map_filename);
             let _ = std::fs::write(map_filename, toml::to_string_pretty(&v).unwrap());
         }
