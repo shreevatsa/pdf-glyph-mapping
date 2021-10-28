@@ -378,7 +378,7 @@ fn visit_ops_in_object(
             // TODO: Change this interface. Maybe visit Tf right here, or pass in a map, or something.
             visitor.visit_op(&mut content, &mut i, &|font_name: &str| {
                 let font = fonts.unwrap().get(font_name.as_bytes()).unwrap();
-                println!("Switching to font {}, which means {:?}", font_name, font);
+                // println!("Switching to font {}, which means {:?}", font_name, font);
                 font.clone()
             })
         }
@@ -390,6 +390,14 @@ fn visit_ops_in_object(
         .as_stream_mut()?
         .set_content(content.encode()?);
     Ok(())
+}
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PdfExpectationError {
+    #[error("unexpected per PDF spec: {msg:?}")]
+    NoWay { msg: String },
 }
 
 /// For instance, given the dict for "15454 0", returns ("APZKLW+NotoSansDevanagari-Bold", "40531 0"), in this example:
@@ -431,7 +439,19 @@ pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
     println!("Looking into referenced_font = {:#?}", referenced_font);
 
-    let encoding = referenced_font.get(b"Encoding")?.as_name_str()?.to_owned();
+    let encoding_obj = ok!(referenced_font.get_deref(b"Encoding", document));
+    println!("Encoding is now: {:#?}", encoding_obj);
+    let encoding: anyhow::Result<String> = match encoding_obj {
+        Object::Reference(_) => unreachable!(),
+        Object::Name(name) => Ok(ok!(std::str::from_utf8(name)).to_string()),
+        // TODO: Handle this better.
+        Object::Dictionary(d) => Ok(format!("Encoding from dict {:#?}", d)),
+        _ => Err(PdfExpectationError::NoWay {
+            msg: format!("Value for key /Encoding is... {:#?}", encoding_obj),
+        }
+        .into()),
+    };
+    let encoding = ok!(encoding);
 
     fn get_subtype(referenced_font: &lopdf::Dictionary) -> FontSubtype {
         let subtype = referenced_font.get(b"Subtype");
