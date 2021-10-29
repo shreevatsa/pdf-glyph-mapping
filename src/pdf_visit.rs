@@ -383,7 +383,8 @@ fn visit_ops_in_object(
                 match object.as_stream() {
                     Ok(stream) => (id, stream.clone()),
                     Err(_) => {
-                        println!("Not a stream object: {:#?}", object);
+                        warn!("Not a stream object: {:#?}", object);
+                        // We don't want to treat this call to `visit_ops_in_object` as having failed.
                         return Ok(());
                     }
                 }
