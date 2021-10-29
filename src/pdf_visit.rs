@@ -35,6 +35,18 @@ macro_rules! ok {
     };
 }
 
+pub fn simple_extend(a: &mut Dictionary, b: &Dictionary) {
+    for (k, v) in b {
+        if a.has(k) {
+            let v1 = a.get(k).unwrap();
+            if format!("{:?}", v) != format!("{:?}", v1) {
+                warn!("{:#?} vs {:#?}", v1, v);
+            }
+        }
+        a.set(k.clone(), v.clone());
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Font {
     pub font_descriptor_id: Option<ObjectId>,
@@ -273,7 +285,7 @@ pub fn visit_page_content_stream_ops(
         let mut xobjects = lopdf::Dictionary::new();
         if let Some(resource_dict) = resource_dict {
             if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"XObject") {
-                xobjects.extend(dict);
+                simple_extend(&mut xobjects, dict);
             }
         } else {
             // TODO: I've already forgotten why this is.
@@ -282,7 +294,7 @@ pub fn visit_page_content_stream_ops(
         for resource_id in &resource_ids {
             if let Ok(resource_dict) = document.get_dictionary(*resource_id) {
                 if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"XObject") {
-                    xobjects.extend(dict);
+                    simple_extend(&mut xobjects, dict);
                 }
             }
         }
@@ -328,13 +340,7 @@ fn visit_ops_in_object(
             if let Ok(res) = res.as_dict() {
                 if let Ok(x) = res.get(b"XObject") {
                     if let Ok(x) = x.as_dict() {
-                        for (k, v) in x {
-                            if xobjects.has(k) {
-                                warn!("{:#?} vs {:#?}", xobjects.get(k).unwrap(), v);
-                            }
-                            xobjects.set(k.clone(), v.clone());
-                        }
-                        xobjects.extend(x)
+                        simple_extend(&mut xobjects, x);
                     }
                 }
             }
@@ -405,7 +411,7 @@ fn visit_ops_in_object(
             };
             let mut together = xobjects.clone();
             if let Some(x) = new_xobjects {
-                together.extend(x)
+                simple_extend(&mut together, x);
             }
             ok!(visit_ops_in_object(
                 object_id,
