@@ -1,3 +1,4 @@
+use log::{info, warn};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -7,11 +8,12 @@ use std::{
 };
 
 macro_rules! indent {
-    ($depth:ident) => {
-        print!(
-            "{}",
+    ($depth:ident, $msg:tt, $($arg:tt)+) => {
+        info!(
+            concat!("{}", $msg),
             // https://stackoverflow.com/questions/35280798/printing-a-character-a-variable-number-of-times-with-println
-            std::iter::repeat("    ").take($depth).collect::<String>()
+            std::iter::repeat("    ").take($depth).collect::<String>(),
+            $($arg)+
         );
     };
 }
@@ -21,7 +23,13 @@ macro_rules! indent {
 macro_rules! ok {
     ($result:expr) => {
         $result.map_err(|err| {
-            println!("Error at line {} column {}: {}", line!(), column!(), err);
+            println!(
+                "Error at file {} line {} column {}: {}",
+                file!(),
+                line!(),
+                column!(),
+                err
+            );
             err
         })?
     };
@@ -104,7 +112,7 @@ impl ToUnicodeCMap {
             }?
         };
         for op in content.operations {
-            println!("An op: {:#?}", op.operator);
+            info!("An op: {:#?}", op.operator);
             let operator = op.operator;
             if operator == "endbfchar" {
                 for src_and_dst in op.operands.chunks(2) {
@@ -281,15 +289,15 @@ pub fn visit_page_content_stream_ops(
 
         let content_streams = document.get_page_contents(page_id);
         for object_id in content_streams {
-            visit_ops_in_object(
+            ok!(visit_ops_in_object(
                 object_id,
                 document,
                 Some(&fonts),
-                Some(&xobjects),
+                &xobjects,
                 debug as usize,
                 &mut seen_ops,
                 visitor,
-            )?;
+            ));
         }
     }
     println!("Seen the following operators: {:?}", seen_ops);
@@ -302,31 +310,54 @@ fn visit_ops_in_object(
     content_stream_object_id: lopdf::ObjectId,
     document: &mut lopdf::Document,
     fonts: Option<&BTreeMap<Vec<u8>, Font>>,
-    xobjects: Option<&lopdf::Dictionary>,
+    xobjects: &lopdf::Dictionary,
     debug_depth: usize,
     seen_ops: &mut linked_hash_map::LinkedHashMap<String, u32>,
     // seen_ops: &mut std::collections::HashMap<String, u32>,
     visitor: &mut dyn OpVisitor,
 ) -> anyhow::Result<()> {
+    println!(
+        "Visiting object {:?} with xobjects {:#?}",
+        content_stream_object_id, xobjects
+    );
+    let mut xobjects = xobjects.clone();
+    let object = ok!(document.get_object(content_stream_object_id));
     let mut content = {
-        let content_stream = document.get_object(content_stream_object_id)?.as_stream()?;
-        match content_stream.decompressed_content() {
+        let content_stream = ok!(object.as_stream());
+        if let Ok(res) = content_stream.dict.get_deref(b"Resources", document) {
+            if let Ok(res) = res.as_dict() {
+                if let Ok(x) = res.get(b"XObject") {
+                    if let Ok(x) = x.as_dict() {
+                        for (k, v) in x {
+                            if xobjects.has(k) {
+                                warn!("{:#?} vs {:#?}", xobjects.get(k).unwrap(), v);
+                            }
+                            xobjects.set(k.clone(), v.clone());
+                        }
+                        xobjects.extend(x)
+                    }
+                }
+            }
+        }
+        println!(
+            "Visiting object {:?} with (full) xobjects {:#?}",
+            content_stream_object_id, xobjects
+        );
+        ok!(match content_stream.decompressed_content() {
             Ok(data) => lopdf::content::Content::decode(&data),
             Err(_) => lopdf::content::Content::decode(&content_stream.content),
-        }?
+        })
     };
     if debug_depth > 0 {
-        indent!(debug_depth);
         // println!("Finding text operators in: {:?}", content);
-        println!("Will visit {} ops.", content.operations.len());
+        indent!(debug_depth, "Will visit {} ops.", content.operations.len());
     }
     let mut i = 0;
     while i < content.operations.len() {
         let op = &content.operations[i];
         let operator = &op.operator;
         if debug_depth > 0 {
-            indent!(debug_depth);
-            println!("Operator: {}", operator);
+            indent!(debug_depth, "Operator: {}", operator);
         }
 
         // No great alternative for these 4 lines yet! https://stackoverflow.com/questions/51542024/how-do-i-use-the-entry-api-with-an-expensive-key-that-is-only-constructed-if-the
@@ -340,19 +371,25 @@ fn visit_ops_in_object(
             assert_eq!(op.operands.len(), 1);
             let name = op.operands[0].as_name_str().unwrap();
             let (object_id, stream) = {
-                let mut object = xobjects
-                    .unwrap()
-                    .get(name.as_bytes())
-                    .unwrap_or_else(|_| panic!("XObject name {} not found in {:?}", name, op));
+                // Using get and implementing get_deref manually, because we also want the id.
+                let mut object = xobjects.get(name.as_bytes()).unwrap_or_else(|_| {
+                    panic!("XObject name {} not found while processing {:?}", name, op)
+                });
                 let mut id = (0, 0);
                 while let Ok(ref_id) = object.as_reference() {
                     id = ref_id;
                     object = document.objects.get(&ref_id).unwrap();
                 }
-                (id, object.as_stream()?.clone())
+                match object.as_stream() {
+                    Ok(stream) => (id, stream.clone()),
+                    Err(_) => {
+                        println!("Not a stream object: {:#?}", object);
+                        return Ok(());
+                    }
+                }
             };
             let mut fonts = BTreeMap::new();
-            let (fonts, xobjects) = match stream.dict.get(b"Resources") {
+            let (fonts, new_xobjects) = match stream.dict.get(b"Resources") {
                 Ok(lopdf::Object::Dictionary(ref resources)) => (
                     {
                         collect_fonts_from_resources(resources, &mut fonts, &document);
@@ -365,15 +402,19 @@ fn visit_ops_in_object(
                 ),
                 _ => (None, None),
             };
-            visit_ops_in_object(
+            let mut together = xobjects.clone();
+            if let Some(x) = new_xobjects {
+                together.extend(x)
+            }
+            ok!(visit_ops_in_object(
                 object_id,
                 document,
                 fonts,
-                xobjects,
+                &together,
                 debug_depth + (debug_depth > 0) as usize,
                 seen_ops,
                 visitor,
-            )?;
+            ));
         } else {
             // TODO: Change this interface. Maybe visit Tf right here, or pass in a map, or something.
             visitor.visit_op(&mut content, &mut i, &|font_name: &str| {
@@ -385,10 +426,8 @@ fn visit_ops_in_object(
         i += 1;
     }
     // The calls to `visit_op` may have changed `content`, so incorporate those changes.
-    document
-        .get_object_mut(content_stream_object_id)?
-        .as_stream_mut()?
-        .set_content(content.encode()?);
+    ok!(ok!(document.get_object_mut(content_stream_object_id)).as_stream_mut())
+        .set_content(ok!(content.encode()));
     Ok(())
 }
 
@@ -437,10 +476,10 @@ pub enum PdfExpectationError {
 /// ...
 pub fn parse_font(referenced_font: &Dictionary, document: &Document) -> anyhow::Result<Font> {
     let base_font_name = ok!(ok!(referenced_font.get(b"BaseFont")).as_name_str()).to_string();
-    println!("Looking into referenced_font = {:#?}", referenced_font);
+    info!("Looking into referenced_font = {:#?}", referenced_font);
 
     let encoding_obj = ok!(referenced_font.get_deref(b"Encoding", document));
-    println!("Encoding is now: {:#?}", encoding_obj);
+    info!("Encoding is now: {:#?}", encoding_obj);
     let encoding: anyhow::Result<String> = match encoding_obj {
         Object::Reference(_) => unreachable!(),
         Object::Name(name) => Ok(ok!(std::str::from_utf8(name)).to_string()),

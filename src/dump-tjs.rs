@@ -5,7 +5,10 @@
 
 use anyhow::Result;
 use clap::Clap;
+use env_logger::WriteStyle;
+use log::LevelFilter;
 use std::collections::HashMap;
+use std::io::Write;
 
 mod pdf_visit;
 mod text_state;
@@ -29,6 +32,38 @@ impl std::str::FromStr for Phase {
 /// Parse a PDF file either to dump text operations (Tj etc) in it,
 /// or to "fix" all text by surrounding them with /ActualText.
 fn main() -> Result<()> {
+    // env_logger::init();
+    // pretty_env_logger::init();
+    // flexi_logger::Logger::try_with_str("info")?
+    //     .format(|w, _now, record| {
+    //         write!(
+    //             w,
+    //             // "[{}] {} [{}] {}:{}: {}",
+    //             "{} {}:{}: {}",
+    //             // now.now().format("%Y-%m-%d %H:%M:%S%.6f %:z"),
+    //             record.level(),
+    //             // record.module_path().unwrap_or("<unnamed>"),
+    //             record.file().unwrap_or("<unnamed>"),
+    //             record.line().unwrap_or(0),
+    //             &record.args()
+    //         )
+    //     })
+    //     .start()?;
+    env_logger::Builder::from_default_env()
+        // TODO: Figure out how to write a custom format function that doesn't disable the default colors.
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} {}:{}: {}",
+                record.level(),
+                record.file().unwrap_or("<unnamed>"),
+                record.line().unwrap_or(0),
+                record.args()
+            )
+        })
+        //.filter(None, LevelFilter::Info)
+        .init();
+
     #[derive(Clap)]
     struct Opts {
         // #[clap(parse(from_os_str), value_hint = clap::ValueHint::AnyPath)]
