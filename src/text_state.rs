@@ -157,19 +157,25 @@ impl TextState {
                             }
                         }
                     }
-                    println!("Trying to read from filename {:?}", filename);
+                    if !filename.exists() {
+                        println!("No files matched.");
+                        None
+                    } else {
+                        println!("Trying to read from filename {:?}", filename);
 
-                    let cmap: ToUnicodeCMap =
-                        toml::from_slice(&std::fs::read(filename).unwrap()).unwrap();
-                    cmap
+                        let cmap: ToUnicodeCMap =
+                            toml::from_slice(&std::fs::read(filename).unwrap()).unwrap();
+                        Some(cmap)
+                    }
                 };
 
-                font_glyph_mappings
-                    .insert(current_font.font_descriptor_id.unwrap(), font_glyph_mapping);
+                if let Some(mapping) = font_glyph_mapping {
+                    font_glyph_mappings.insert(current_font.font_descriptor_id.unwrap(), mapping);
+                }
             }
             let mut current_map = font_glyph_mappings
                 .get_mut(&current_font.font_descriptor_id.unwrap())
-                .unwrap()
+                .unwrap_or(&mut ToUnicodeCMap::default())
                 .mapped
                 .clone();
 
@@ -184,9 +190,15 @@ impl TextState {
                             glyph_id,
                             current_font.base_font_name.as_ref().unwrap()
                         );
-                        println!("Nevermind, enter replacement text now:");
-                        let replacement: String = text_io::read!("{}\n"); // Quiet alternative: format!("[glyph{:04X}]", glyph_id);
-                        println!("Thanks, using replacement #{}#", replacement);
+                        // // Interactive alternative
+                        // let replacement: String = {
+                        //     println!("Nevermind, enter replacement text now:");
+                        //     let replacement = text_io::read!("{}\n");
+                        //     println!("Thanks, using replacement #{}#", replacement);
+                        //     replacement
+                        // };
+                        // Quiet alternative
+                        let replacement = format!("[glyph{:#?}]", glyph_id.0);
                         current_map.insert(
                             CharacterCode(glyph_id.0.clone()),
                             vec![replacement.clone()].into_iter().collect(),
@@ -341,7 +353,7 @@ pub fn dump_unicode_mappings(
     document: &lopdf::Document,
     maps_dir: std::path::PathBuf,
 ) -> anyhow::Result<()> {
-    for (_object_id, object) in &document.objects {
+    for (object_id, object) in &document.objects {
         if let Ok(dict) = object.as_dict() {
             if let Ok(stream_object) = dict.get_deref(b"ToUnicode", &document) {
                 let pdf_font = pdf_visit::parse_font(dict, &document)?;
@@ -364,7 +376,12 @@ pub fn dump_unicode_mappings(
                     let toml_string = ok!(toml::to_string_pretty(&cmap));
                     ok!(std::fs::write(filename, toml_string));
                 } else {
-                    println!("Font {:?} ({}) ToUnicode empty? (Or maybe it's a CMAP file this library can't handle)", font_descriptor_id, base_font_name);
+                    println!(
+                        "For Font {:?} (name {}), couldn't parse ToUnicode {:?}",
+                        object_id,
+                        base_font_name,
+                        dict.get(b"ToUnicode"),
+                    );
                 }
             }
         }

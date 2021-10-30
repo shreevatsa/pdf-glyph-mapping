@@ -105,3 +105,5 @@ Even after the mapping is fixed, a second problem is that, roughly speaking, the
     2.  (**This is slow, may take ~150 ms per page.**) Generates a copy of your original PDF, with data in it about the actual text corresponding to each text operation.
 
 All this has been tested only with one large PDF. These scripts are rather hacky and some decisions about PDF structure etc are hard-coded; for other PDFs they will likely need to be changed.
+
+TODO: Read this answer and try qpdf/mutool-clean, to simplify parsing work: https://stackoverflow.com/questions/3446651/how-to-convert-pdf-binary-parts-into-ascii-ansi-so-i-can-look-at-it-in-a-text-ed/3483710#3483710

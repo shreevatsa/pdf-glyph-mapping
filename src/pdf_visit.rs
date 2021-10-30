@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{debug, info, warn};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -8,7 +8,7 @@ use std::{
 };
 
 macro_rules! indent {
-    ($depth:ident, $msg:tt, $($arg:tt)+) => {
+    ($depth:expr, $msg:tt, $($arg:tt)+) => {
         info!(
             concat!("{}", $msg),
             // https://stackoverflow.com/questions/35280798/printing-a-character-a-variable-number-of-times-with-println
@@ -104,27 +104,30 @@ pub struct CharacterCode(pub Vec<u8>);
 
 // Mapping from character codes to "character selectors" aka CIDs.
 #[serde_as]
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Default)]
 pub struct ToUnicodeCMap {
     #[serde_as(as = "Vec<(_, _)>")]
     pub mapped: HashMap<CharacterCode, HashSet<String>>,
 }
 impl ToUnicodeCMap {
     pub fn parse(stream_object: &Object) -> anyhow::Result<ToUnicodeCMap> {
-        println!("Trying to parse a CMap out of: {:#?}", stream_object);
         // map from glyph id (as 4-digit hex string) to set of codepoints.
         // The latter is a set because our PDF assigns the same mapping multiple times, for some reason.
         let mut mapped: HashMap<CharacterCode, HashSet<String>> = HashMap::new();
-        let content_stream = stream_object.as_stream()?;
+        let content_stream = ok!(stream_object.as_stream());
         // TODO: The lopdf library seems to have some difficulty when the stream is an actual CMap file (with comments etc).
         let content = {
-            match content_stream.decompressed_content() {
+            ok!(match content_stream.decompressed_content() {
                 Ok(data) => lopdf::content::Content::decode(&data),
                 Err(_) => lopdf::content::Content::decode(&content_stream.content),
-            }?
+            })
         };
+        debug!(
+            "Trying to parse a CMap out of: {:#?} = {:#?}",
+            stream_object, content
+        );
         for op in content.operations {
-            info!("An op: {:#?}", op.operator);
+            indent!(1, "An op: {:#?}", op.operator);
             let operator = op.operator;
             if operator == "endbfchar" {
                 for src_and_dst in op.operands.chunks(2) {
@@ -134,8 +137,8 @@ impl ToUnicodeCMap {
                         .map(|chunk| (chunk[0] as u16) * 256 + (chunk[1] as u16))
                         .collect();
                     let dst = ok!(String::from_utf16(&dst));
-                    let src = CharacterCode(src_and_dst[0].as_str()?.to_vec());
-                    println!("Mapping {:?} to < {:} >", src, dst);
+                    let src = CharacterCode(ok!(src_and_dst[0].as_str()).to_vec());
+                    indent!(2, "Mapping {:?} to < {:} >", src, dst);
                     mapped.entry(src).or_default().insert(dst);
                 }
             } else if operator == "endbfrange" {
@@ -187,8 +190,16 @@ impl ToUnicodeCMap {
                         }
                     }
                 }
+            } else if operator == "begincmap" {
+                indent!(2, "Operands: {:#?}", op.operands);
+            } else if operator == "endcmap" {
+                indent!(2, "Operands: {:#?}", op.operands);
             }
         }
+        println!(
+            "Done trying to parse a CMap out of: {:#?}: got mapping {:#?}",
+            stream_object, mapped
+        );
         Ok(ToUnicodeCMap { mapped })
     }
 }
