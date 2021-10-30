@@ -13,13 +13,25 @@ struct Opts {
 }
 
 use anyhow::{Context, Result};
-use image::DynamicImage;
-use std::path::PathBuf;
+use image::{DynamicImage, RgbaImage};
+use std::path::Path;
 /// As mentioned above: This program reads a font file, and dumps bitmap images into a directory.
 fn main() -> Result<()> {
     let opts = Opts::parse();
+    let output_dir = Path::new(&opts.output_dir).join(opts.font_file.file_name().unwrap());
     let font_file_contents = std::fs::read(&opts.font_file)?;
-    dump_glyphs(&font_file_contents, opts.output_dir, 30.0)?;
+    let images_iterator = dump_glyphs(&font_file_contents, 30.0)?;
+    std::fs::create_dir_all(output_dir.clone())?;
+    for maybe_pair in images_iterator {
+        if let Some((glyph_id, image)) = maybe_pair {
+            let output_filename = output_dir.join(format!("glyph-{:04X}.png", glyph_id));
+            image
+                .save(&output_filename)
+                .with_context(|| format!("Failed to write to {:?}", output_filename))?;
+
+            println!("Generated: {:#?}", output_filename);
+        }
+    }
     Ok(())
 }
 
@@ -33,7 +45,10 @@ fn main() -> Result<()> {
 /// We use the `ab_glyph` crate to parse the font, and generate images for each glyph.
 /// Specifically (see the example in its crate documentation), it has a `ab_glyph::OutlinedGlyph::draw`
 /// function, which calls a callback for each position (x, y) and "coverage" c.
-fn dump_glyphs(font_file_contents: &[u8], output_dir: PathBuf, size: f32) -> Result<()> {
+fn dump_glyphs(
+    font_file_contents: &[u8],
+    size: f32,
+) -> Result<impl std::iter::Iterator<Item = Option<(u16, RgbaImage)>> + '_> {
     use ab_glyph::{Font, FontRef};
     use image::Rgba;
 
@@ -82,36 +97,39 @@ fn dump_glyphs(font_file_contents: &[u8], output_dir: PathBuf, size: f32) -> Res
     // A common height because the images will be laid out side-by-side and we want their baselines to align.
     let height = shift.y as i32 + y_max + 1;
 
-    for g in 0..font.glyph_count() {
-        let glyph_id: u16 = g as u16;
-        let glyph = GlyphId(glyph_id).with_scale_and_position(size, shift);
-        let colour = (0, 0, 0);
-        // We can generate images only for glyphs for which we have outlines.
-        if let Some(q) = font.outline_glyph(glyph) {
-            let mut image = DynamicImage::new_rgba8(
-                (shift.x + q.px_bounds().max.x + 1.0) as u32,
-                height as u32,
-            )
-            .to_rgba8();
-            q.draw(|x, y, c| {
-                // draw pixel `(x, y)` with coverage `c` (=what fraction of the pixel the glyph covered).
-                image.put_pixel(
-                    // Offset the position so they appear properly; see the comment above "First pass".
-                    x + q.px_bounds().min.x as u32,
-                    y + q.px_bounds().min.y as u32,
-                    // Using the "coverage" as the PNG image's "alpha value".
-                    Rgba([colour.0, colour.1, colour.2, (c * 255.0) as u8]),
+    let mut g = 0;
+    Ok(std::iter::from_fn(move || {
+        if g < font.glyph_count() {
+            let result;
+            let glyph_id: u16 = g as u16;
+            let glyph = GlyphId(glyph_id).with_scale_and_position(size, shift);
+            let colour = (0, 0, 0);
+            // We can generate images only for glyphs for which we have outlines.
+            if let Some(q) = font.outline_glyph(glyph) {
+                let mut image = DynamicImage::new_rgba8(
+                    (shift.x + q.px_bounds().max.x + 1.0) as u32,
+                    height as u32,
                 )
-            });
-            let output_filename = output_dir.join(format!("glyph-{:04X}.png", glyph_id));
-            image
-                .save(&output_filename)
-                .with_context(|| format!("Failed to write to {:?}", output_filename))?;
-
-            println!("Generated: {:#?}", output_filename);
+                .to_rgba8();
+                q.draw(|x, y, c| {
+                    // draw pixel `(x, y)` with coverage `c` (=what fraction of the pixel the glyph covered).
+                    image.put_pixel(
+                        // Offset the position so they appear properly; see the comment above "First pass".
+                        x + q.px_bounds().min.x as u32,
+                        y + q.px_bounds().min.y as u32,
+                        // Using the "coverage" as the PNG image's "alpha value".
+                        Rgba([colour.0, colour.1, colour.2, (c * 255.0) as u8]),
+                    )
+                });
+                result = Some((glyph_id, image))
+            } else {
+                println!("No bounding box for GlyphId {:04X}", g);
+                result = None
+            }
+            g += 1;
+            Some(result)
         } else {
-            println!("No bounding box for GlyphId {:04X}", g);
+            None
         }
-    }
-    Ok(())
+    }))
 }
