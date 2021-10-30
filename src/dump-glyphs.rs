@@ -1,16 +1,44 @@
 //! Reads a (TTF) font file, and dumps a bitmap image for each glyph in it.
-use ab_glyph::Font;
-use anyhow::{Context, Result};
+//!
+//! A TTF font file contains, among other things, a description of the shape of each character (glyph) in the font.
+//! This program reads a font file, and dumps bitmap images into a directory.
+
+use ab_glyph::GlyphId;
 use clap::Clap;
-use image::{DynamicImage, Rgba};
+/// These are the two command-line options the program takes.
+#[derive(Clap, Debug)]
+struct Opts {
+    font_file: std::path::PathBuf,
+    output_dir: std::path::PathBuf,
+}
 
-fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
-    let filename = opts.font_file;
-    let output_dir = std::path::Path::new(&opts.output_dir).join(filename.file_name().unwrap());
-    std::fs::create_dir_all(output_dir.clone())?;
+use anyhow::{Context, Result};
+use image::DynamicImage;
+use std::path::PathBuf;
+/// As mentioned above: This program reads a font file, and dumps bitmap images into a directory.
+fn main() -> Result<()> {
+    let opts = Opts::parse();
+    let font_file_contents = std::fs::read(&opts.font_file)?;
+    dump_glyphs(&font_file_contents, opts.output_dir, 30.0)?;
+    Ok(())
+}
 
-    let file_bytes = &std::fs::read(&filename)?;
-    let font = ab_glyph::FontRef::try_from_slice(file_bytes).expect("Error constructing FontRef");
+/// Parse `font_file_contents` as a font, and dump its glyphs into `output_dir`.
+///
+/// Returns an iterator over optional (glyph_id, image) pairs -- the return type will be cleaner
+/// [when Rust has generators](https://stackoverflow.com/questions/16421033/lazy-sequence-generation-in-rust).
+///
+/// # Implementation
+///
+/// We use the `ab_glyph` crate to parse the font, and generate images for each glyph.
+/// Specifically (see the example in its crate documentation), it has a `ab_glyph::OutlinedGlyph::draw`
+/// function, which calls a callback for each position (x, y) and "coverage" c.
+fn dump_glyphs(font_file_contents: &[u8], output_dir: PathBuf, size: f32) -> Result<()> {
+    use ab_glyph::{Font, FontRef};
+    use image::Rgba;
+
+    let font =
+        FontRef::try_from_slice(font_file_contents).with_context(|| "Could not parse font.")?;
     println!("This font has {} glyphs.", font.glyph_count());
 
     /*
@@ -36,8 +64,7 @@ fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
     let mut y_min = i32::MAX;
     let mut y_max = i32::MIN;
     for g in 0..font.glyph_count() {
-        let glyph =
-            ab_glyph::GlyphId(g as u16).with_scale_and_position(size, ab_glyph::point(0.0, 0.0));
+        let glyph = GlyphId(g as u16).with_scale_and_position(size, ab_glyph::point(0.0, 0.0));
         if let Some(q) = font.outline_glyph(glyph) {
             x_min = std::cmp::min(x_min, q.px_bounds().min.x as i32);
             x_max = std::cmp::max(x_max, q.px_bounds().max.x as i32);
@@ -54,9 +81,10 @@ fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
     // Second pass: Draw each glyph.
     // A common height because the images will be laid out side-by-side and we want their baselines to align.
     let height = shift.y as i32 + y_max + 1;
+
     for g in 0..font.glyph_count() {
         let glyph_id: u16 = g as u16;
-        let glyph = ab_glyph::GlyphId(glyph_id).with_scale_and_position(size, shift);
+        let glyph = GlyphId(glyph_id).with_scale_and_position(size, shift);
         let colour = (0, 0, 0);
         // We can generate images only for glyphs for which we have outlines.
         if let Some(q) = font.outline_glyph(glyph) {
@@ -82,20 +110,8 @@ fn dump_glyphs(opts: Opts, size: f32) -> Result<()> {
 
             println!("Generated: {:#?}", output_filename);
         } else {
-            // println!("No bounding box for GlyphId {:04X}", gu);
+            println!("No bounding box for GlyphId {:04X}", g);
         }
     }
-    Ok(())
-}
-
-#[derive(Clap, Debug)]
-struct Opts {
-    font_file: std::path::PathBuf,
-    output_dir: std::path::PathBuf,
-}
-
-fn main() -> Result<()> {
-    let opts = Opts::parse();
-    dump_glyphs(opts, 30.0)?;
     Ok(())
 }
