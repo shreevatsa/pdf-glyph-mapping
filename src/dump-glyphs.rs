@@ -6,10 +6,6 @@
 use clap::Clap;
 use std::path::{Path, PathBuf};
 
-fn parse_hex(input: &str) -> Result<u16, std::num::ParseIntError> {
-    u16::from_str_radix(input, 16)
-}
-
 /// These are the command-line options the program takes.
 #[derive(Clap, Debug)]
 struct Opts {
@@ -21,7 +17,7 @@ struct Opts {
     #[clap(short, long, default_value = "30.0")]
     size: f32,
     /// A comma-separated list of which glyphs to dump images for (default: all glyphs).
-    #[clap(short, long, use_delimiter = true, parse(try_from_str = parse_hex))]
+    #[clap(short, long, use_delimiter = true)]
     glyphs: Option<Vec<u16>>,
 }
 
@@ -167,8 +163,7 @@ fn dump_glyphs(
     // Second pass: Generate images out of the outlined glyphs.
     std::fs::create_dir_all(output_dir.clone())?;
     for (glyph_id, glyph) in glyphs {
-        // This calculation is a bug, retained for compatibility.
-        let width = glyph.px_bounds().max.x - 2.0 * (x_min as f32) + 1.0;
+        let width = glyph.px_bounds().max.x - (x_min as f32) + 1.0;
         let mut image = DynamicImage::new_rgba8(width as u32, height as u32).to_rgba8();
         glyph.draw(|x, y, c| {
             // Draw pixel `(x, y)` with coverage `c` (= what fraction of the pixel the glyph covered).
