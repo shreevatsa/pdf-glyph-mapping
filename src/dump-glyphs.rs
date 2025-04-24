@@ -25,6 +25,7 @@ use anyhow::{Context, Result};
 /// As mentioned above: This program reads a font file, and dumps bitmap images into a directory.
 fn main() -> Result<()> {
     let opts = Opts::parse();
+    println!("Opening file {}", opts.font_file.display());
     let font_file_contents = std::fs::read(&opts.font_file)?;
     let output_dir = Path::new(&opts.output_dir).join(opts.font_file.file_name().unwrap());
     dump_glyphs(&font_file_contents, output_dir, opts.size, opts.glyphs)?;

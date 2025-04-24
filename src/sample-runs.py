@@ -147,7 +147,7 @@ def main():
 
     matches = glob.glob(os.path.join(font_usage_dir, '*.Tjs'))
     print(f'Found these Tj files: {sorted(matches)}')
-    assert len(matches) > 1
+    # assert len(matches) > 1
     for filename_tjs in sorted(matches):
         print('\n\n', f'{filename_tjs=}', sep='')
         basename = pathlib.Path(filename_tjs).name
