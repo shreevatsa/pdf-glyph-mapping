@@ -5,6 +5,7 @@ ORIG=../gp-mbh/unabridged.pdf
 HELPER=helper_fonts/NotoSansDevanagari-Regular.ttx
 
 # cd into a tmpdir and extract fonts (.ttf files) from the PDF file ($ORIG).
+cd ..
 tmpdir=tmp-$(date +%s)
 echo "Creating ${tmpdir}"
 mkdir -p ${tmpdir}
