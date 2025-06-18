@@ -7,8 +7,8 @@ ORIG_PDF=${ORIG}.pdf
 # Graph from https://gist.github.com/shreevatsa/9a07d68931cd2167e12db4008eef5715 using https://dot-to-ascii.ggerganov.com/
 #                         ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 #                         │                                                                                                                                                                                                                                     ▼
-# ┏━━━━━━━━━━━━━━━┓     ┏━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━┓     ┌−−−−−−−−−−−−−┐     ┏━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━┓     ┌−−−−−┐     ┏━━━━━━━━━━━━━━━━┓
-# ┃ helper_fonts/ ┃     ┃ ORIG.pdf ┃ ──▶ ╎ mutool-extract.sh ╎ ──▶ ┃ fonts/ ┃ ──▶ ╎ dump-glyphs ╎ ──▶ ┃ glyphs/ ┃ ──▶ ╎                ╎ ──▶ ┃ maps/look/ ┃ ──▶ ╎ manual intervention ╎ ──▶ ┃ maps/manual/ ┃ ──▶ ╎ validate-maps.py ╎ ──▶ ┃ maps/valid/ ┃ ──▶ ╎ fix ╎ ──▶ ┃ ORIG.fixed.pdf ┃
+# ┏━━━━━━━━━━━━━━━┓     ┏━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━┓     ┌−−−−−−−−−−−−−−┐     ┏━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━━┓     ┌−−−−−−−−−−−−−−−−−−┐     ┏━━━━━━━━━━━━━┓     ┌−−−−−┐     ┏━━━━━━━━━━━━━━━━┓
+# ┃ helper_fonts/ ┃     ┃ ORIG.pdf ┃ ──▶ ╎ mutool-extract.sh ╎ ──▶ ┃ fonts/ ┃ ──▶ ╎ glyph-dumper ╎ ──▶ ┃ glyphs/ ┃ ──▶ ╎                ╎ ──▶ ┃ maps/look/ ┃ ──▶ ╎ manual intervention ╎ ──▶ ┃ maps/manual/ ┃ ──▶ ╎ validate-maps.py ╎ ──▶ ┃ maps/valid/ ┃ ──▶ ╎ fix ╎ ──▶ ┃ ORIG.fixed.pdf ┃
 # ┗━━━━━━━━━━━━━━━┛     ┗━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━┛     └−−−−−−−−−−−−−┘     ┗━━━━━━━━━┛     ╎                ╎     ┗━━━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━━━━━━━┛     └−−−−−−−−−−−−−−−−−−┘     ┗━━━━━━━━━━━━━┛     └−−−−−┘     ┗━━━━━━━━━━━━━━━━┛
 #   │                     │                                          │                                                ╎                ╎
 #   │                     │                                          └──────────────────────────────────────────────▶ ╎ sample-runs.py ╎
@@ -41,10 +41,10 @@ fonts/: ${ORIG_PDF}
 font-usage/: ${ORIG_PDF}
 	RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-tjs -- ${ORIG_PDF} font-usage/ --phase phase1
 
-# fonts/font-N.ttf  ---[dump-glyphs]--->  glyphs/font-N/glyph-M.png
+# fonts/font-N.ttf  ---[glyph-dumper]--->  glyphs/font-N/glyph-M.png
 glyphs/: fonts/
 	for f in fonts/font-*.ttf; do \
-		RUST_BACKTRACE=1 cargo +nightly run --release --bin dump-glyphs -- $$f glyphs/; \
+		RUST_BACKTRACE=1 cargo +nightly run --release --bin glyph-dumper -- $$f glyphs/; \
 	done
 
 # font-usage/font-N.{Tjs,toml} and helper-i.ttx ---[sample-runs.py]---> maps/look/font-N.{html,toml}

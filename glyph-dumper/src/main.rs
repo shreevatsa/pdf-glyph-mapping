@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 /// We use the `ab_glyph` crate to parse the font, and generate images for each glyph.
 /// Specifically, `ab_glyph` has a function `ab_glyph::OutlinedGlyph::draw`, which calls a
 /// callback for each position (x, y) and "coverage" c (i.e. what fraction of the pixel (x, y)
-/// is covered by the ideal outline: we can use this value as the pixel's darkness, or in fact
+/// is covered by the ideal outline: we can use this value as the pixel's darkness, or in fact
 /// its opacity ("alpha" in PNG), to get a reasonable image).
 ///
 /// Per the example in the `ab_glyph` crate documentation, we could do something like this:
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
 ///     6   = 0006 anusvara   bounds are Rect { min: point(-5.0, -20.0), max: point(-1.0, -14.0) }
 ///     510 = 01FE ddha       bounds are Rect { min: point(0.0, -15.0), max: point(26.0, 10.0) }
 ///
-/// — it seems (see the next paragraph for what the bounds above mean) that `y=0` is the baseline, and
+/// — it seems (see the next paragraph for what the bounds above mean) that `y=0` is the baseline, and
 /// `x=0` is something like the left corner (and glyphs that attach to the previous one have negative `x`).
 /// Whether or not this is common, the point is that the `draw` coordinates aren't usable as-is.)
 ///

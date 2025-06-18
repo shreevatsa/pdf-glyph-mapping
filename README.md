@@ -5,6 +5,13 @@ Scripts to help with text extraction from (some) PDF files.
 
 (Specifically: fix incorrect/incomplete `ToUnicode CMap`, i.e. the mapping between individual glyphs and Unicode text.)
 
+## Project Structure
+
+This repository is organized as a Rust workspace with two crates:
+
+1. **pdf-glyph-mapping**: The main crate for PDF text extraction and processing
+2. **glyph-dumper**: A standalone tool for extracting glyphs from TTF font files as bitmap images
+
 ## What's this?
 
 Text that requires complex text layout (because of being in Indic scripts, say) cannot be copied correctly from PDFs, unless annotated with `ActualText`. Here is a bunch of tools that may help in some cases.
@@ -94,7 +101,7 @@ Even after the mapping is fixed, a second problem is that, roughly speaking, the
     2.  If you know fonts that may be related to the fonts in the directory, run `ttx` (from [fonttools](https://fonttools.readthedocs.io/en/latest/ttx.html)) on them, and put the resulting files inside the `work/helper_fonts/` directory.
 2.  Run `make`, from within the `work/` directory. This will do the following:
     1.  Extracts the font data from the PDF file, using `mutool extract`.
-    2.  Dumps each glyph from each font as a bitmap image, using the `dump-glyphs` binary from this repository.
+    2.  Dumps each glyph from each font as a bitmap image, using the `glyph-dumper` binary from this repository.
     3.  Extracts each "text operation" (`Tj`, `TJ`, `'`, `"`; see [9.4.3 Text-Showing Operators](https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf#page=258) in the PDF 1.7 spec) in the PDF (which glyphs from which font were used), using the `dump-tjs` binary from this repository.
     4.  Runs the `sample-runs.py` script from this repository, which
         1.  generates the glyph_id to Unicode mapping known so far (see [this comment](https://github.com/shreevatsa/pdf-glyph-mapping/blob/bbecd8154c171c97b21e76c612f2b66fdf5f873b/src/sample-runs.py#L212-L258)),
