@@ -295,7 +295,7 @@ pub fn visit_page_content_stream_ops(
         // TODO: Consider something similar to `get_page_fonts` above, if it turns out be necessary.
         let mut xobjects = lopdf::Dictionary::new();
         if let Some(resource_dict) = resource_dict {
-            if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"XObject") {
+            if let Ok(lopdf::Object::Dictionary(dict)) = resource_dict.get(b"XObject") {
                 simple_extend(&mut xobjects, dict);
             }
         } else {
@@ -304,7 +304,7 @@ pub fn visit_page_content_stream_ops(
         }
         for resource_id in &resource_ids {
             if let Ok(resource_dict) = document.get_dictionary(*resource_id) {
-                if let Ok(lopdf::Object::Dictionary(ref dict)) = resource_dict.get(b"XObject") {
+                if let Ok(lopdf::Object::Dictionary(dict)) = resource_dict.get(b"XObject") {
                     simple_extend(&mut xobjects, dict);
                 }
             }
@@ -408,13 +408,13 @@ fn visit_ops_in_object(
             };
             let mut fonts = BTreeMap::new();
             let (fonts, new_xobjects) = match stream.dict.get(b"Resources") {
-                Ok(lopdf::Object::Dictionary(ref resources)) => (
+                Ok(lopdf::Object::Dictionary(resources)) => (
                     {
                         collect_fonts_from_resources(resources, &mut fonts, &document);
                         Some(&fonts)
                     },
                     match resources.get(b"XObject") {
-                        Ok(lopdf::Object::Dictionary(ref xobjects_dict)) => Some(xobjects_dict),
+                        Ok(lopdf::Object::Dictionary(xobjects_dict)) => Some(xobjects_dict),
                         _ => None,
                     },
                 ),
