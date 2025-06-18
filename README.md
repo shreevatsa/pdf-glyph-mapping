@@ -1,3 +1,5 @@
+(Status: Mostly abandoned; there may be something useful here but will require some work to recover it.)
+
 # pdf-glyph-mapping
 Scripts to help with text extraction from (some) PDF files.
 
