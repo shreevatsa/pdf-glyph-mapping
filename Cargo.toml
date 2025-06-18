@@ -2,7 +2,7 @@
 name = "pdf-glyph-mapping"
 version = "0.1.0"
 authors = ["Shreevatsa R <shreevatsa.public@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [[bin]]
 name = "dump-tjs"

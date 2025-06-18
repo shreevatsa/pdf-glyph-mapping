@@ -152,7 +152,7 @@ impl ToUnicodeCMap {
                     assert_eq!(2, offset.len());
                     // We expect begin/end to be 1 or 2 bytes usually, but use u64 to support up to 8 bytes.
                     fn from_many_bytes(bytes: &[u8]) -> u64 {
-                        assert!(bytes.len() <= 8, format!("Wow, super-long: {:?}", bytes));
+                        assert!(bytes.len() <= 8, "Wow, super-long: {:?}", bytes);
                         let mut ret = 0;
                         for byte in bytes {
                             ret = ret * 256 + (*byte as u64)
@@ -160,7 +160,7 @@ impl ToUnicodeCMap {
                         ret
                     }
                     fn to_many_bytes(mut bytes: u64, len: usize) -> Vec<u8> {
-                        assert!(len <= 8, format!("Wow, super-long: {:?}", len));
+                        assert!(len <= 8, "Wow, super-long: {:?}", len);
                         let mut ret = vec![0 as u8; len];
                         for i in 0..len {
                             ret[i] = (bytes % 256) as u8;
